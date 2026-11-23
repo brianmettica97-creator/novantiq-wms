@@ -1,5 +1,7 @@
 # NOVANTIQ WMS
 
+**▶ [Ver la demo en vivo](https://brianmettica97-creator.github.io/novantiq-wms/dist/wms-demo.html)**: depósito simulado en 3D, sin instalar nada (funciona en compu y celular).
+
 Sistema de gestión de almacenes (WMS) para depósitos con autoelevadores: mapa en vivo,
 app para la tablet del clark, putaway y picking FEFO, slotting inteligente ABC y dashboard de KPIs.
 
