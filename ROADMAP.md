@@ -3,14 +3,19 @@
 **Demo:** https://brianmettica97-creator.github.io/novantiq-wms/dist/wms-demo.html
 (funciona en compu y celular, sin instalar nada)
 
-La demo simula un turno en un centro de distribución de consumo masivo: 960 posiciones en 6 pasillos y 4 niveles,
-300 pallets de 60 productos y 3 clientes, 5 clarks retráctiles y 6 muelles (2 de recepción y 4 de despacho).
+La demo simula un turno en un centro de distribución de consumo masivo: 1.920 posiciones en 6 pasillos y 4 niveles
+(2 pallets por bahía), 1.500 pallets (≈78 % de ocupación) de 60 productos y 3 clientes, 6 clarks retráctiles y 6 muelles
+(2 de recepción y 4 de despacho).
 Todo lo que se ve sale de esa simulación: no son pantallas armadas a mano.
 
 ## Recorrido sugerido (5 minutos)
 
+0. **Tocá "▶ Recorrido guiado"** (arriba): un paseo automático de 90 segundos por todo el sistema. Con `Esc` salís.
 1. **Mapa 3D.** Arrastrá para girar y usá la rueda para acercar. El botón `⇶` te lleva a la cabecera de cada pasillo.
-   Los colores muestran la rotación ABC; cambiá a *Vencimiento* o *Estado* arriba del mapa.
+   En modo **Realista** las cajas se ven como en el depósito y el indicador (rotación ABC, vencimiento, estado) va en la
+   etiqueta de color de cada pallet; en modo **Análisis** se pinta toda la carga. Si la compu va lenta, bajá la *Calidad*.
+   **Buscador**: escribí un producto (por ejemplo *Yerba*), un SKU o un LPN y se ilumina el pallet que sale primero por FEFO,
+   con el clark más cercano y cuánto tarda en llegar.
 2. **Tocá una ubicación.** Vas a ver el pallet, el lote, el vencimiento, el último conteo y la **historia del pallet**:
    quién lo recibió, con qué remito, quién lo guardó y cuándo.
 3. **Activá "Slotting inteligente".** Los productos de alta rotación se acercan al muelle de despacho y

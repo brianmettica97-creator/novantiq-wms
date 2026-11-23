@@ -179,3 +179,21 @@ describe('simulación', () => {
     assert.deepEqual(a.clarks.map((c) => [c.x, c.y]), b.clarks.map((c) => [c.x, c.y]));
   });
 });
+
+describe('depósito real (2 posiciones por bahía, ~78 % de ocupación)', () => {
+  test('1.920 posiciones: 2 pallets por viga de 2,7 m', () => {
+    const { locations } = buildLayout();
+    assert.equal(locations.length, 1920);
+    assert.equal(L.bayW * L.posPerBay, 2.7);
+    assert.equal(new Set(locations.map((l) => l.code)).size, 1920, 'códigos únicos');
+  });
+
+  test('con 1.500 pallets la operación mantiene el stock cerca del objetivo y las invariantes', () => {
+    const st = createSim(generateMockData({ seed: 2026, pallets: 1500 }), { clarks: 6, seed: 2027 });
+    setSmart(st, true);
+    for (let k = 0; k < 4 * 60; k++) { stepSim(st, 60); if (k % 30 === 0) checkInvariants(st); }
+    checkInvariants(st);
+    assert.ok(Math.abs(st.palletMap.size - 1500) < 60, `stock ${st.palletMap.size}`);
+    assert.ok(st.done > 200);
+  });
+});

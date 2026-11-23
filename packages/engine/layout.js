@@ -3,9 +3,10 @@
 
 export const L = {
   aisles: 6,        // pasillos A–F
-  bays: 20,         // columnas por rack
+  bays: 40,         // posiciones de pallet por rack (frente)
   levels: 4,        // niveles en altura (0 = piso)
-  bayW: 2.7,        // ancho de una columna (2 pallets de frente aprox.)
+  bayW: 1.35,       // ancho de una posición de pallet
+  posPerBay: 2,     // posiciones por bahía: viga de 2,7 m con 2 pallets
   rackD: 1.6,       // profundidad del rack
   aisleW: 3.4,      // ancho de pasillo para clark retráctil
   gap: 0.5,         // espalda con espalda entre racks

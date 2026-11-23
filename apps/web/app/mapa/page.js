@@ -22,7 +22,7 @@ export default function Mapa() {
   useEffect(() => {
     let socket, cancel = false;
     if (fuente === 'demo') {
-      stRef.current = createSim(generateMockData({ pallets: 300 }), { clarks: 5 });
+      stRef.current = createSim(generateMockData({ pallets: 1500 }), { clarks: 6 });
     } else {
       const load = async () => {
         try { const rows = await api('/api/mapa'); if (!cancel) stRef.current = stateFromApi(rows); }

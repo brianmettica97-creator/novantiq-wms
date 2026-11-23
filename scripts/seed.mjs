@@ -1,5 +1,5 @@
 // Genera db/seed.sql y db/mock-data.json con el mismo generador que usa la demo.
-// Uso: node scripts/seed.mjs [--pallets 300] [--seed 2026]
+// Uso: node scripts/seed.mjs [--pallets 1500] [--seed 2026]
 //      psql "$DATABASE_URL" -f db/schema.sql && psql "$DATABASE_URL" -f db/seed.sql
 import { writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +10,7 @@ import { L } from '../packages/engine/layout.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? Number(process.argv[i + 1]) : d; };
-const data = generateMockData({ seed: arg('--seed', 2026), pallets: arg('--pallets', 300) });
+const data = generateMockData({ seed: arg('--seed', 2026), pallets: arg('--pallets', 1500) });
 
 const q = (v) => (v == null ? 'NULL' : typeof v === 'number' ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
 const out = [];

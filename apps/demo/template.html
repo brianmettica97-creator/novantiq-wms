@@ -53,6 +53,7 @@ select{background:var(--panel2);color:var(--text);border:1px solid var(--line);b
 canvas#map{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
 canvas.map3d{position:absolute;inset:0;display:block;cursor:grab;touch-action:none}
 .is3d canvas#map,.is2d canvas.map3d,.is2d .only3d{display:none!important}
+.dim2d .only3d-t{display:none!important}
 .hint3d{position:absolute;left:14px;top:12px;font-size:11.5px;color:var(--muted);background:rgba(13,20,36,.8);border:1px solid var(--line);border-radius:8px;padding:5px 9px;pointer-events:none}
 .tip{position:absolute;pointer-events:none;background:rgba(13,20,36,.96);border:1px solid #2a3a58;border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.45;display:none;max-width:260px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .tip b{font-family:'JetBrains Mono',monospace}
@@ -104,6 +105,35 @@ aside::-webkit-scrollbar{width:6px}aside::-webkit-scrollbar-thumb{background:#1e
 .tablet .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .tablet .pgrid button{border:1px solid #7f1d1d;background:#1c0a0a;color:#fecaca;border-radius:12px;padding:12px;font-weight:700}
 .clk .lock{color:#f87171;font-weight:800}
+.search{display:flex;gap:6px;align-items:center}
+.search input{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;color:var(--text);font:inherit;font-size:12.5px;width:210px}
+.search input:focus{outline:none;border-color:#38bdf8}
+.btn.go{background:linear-gradient(135deg,#16a34a,#0ea5e9);border:0;color:#fff}
+.rcard{position:absolute;right:58px;top:12px;width:300px;background:rgba(6,12,22,.92);border:1px solid #155e75;border-radius:16px;padding:14px 16px;display:none;box-shadow:0 0 0 1px rgba(94,234,212,.15),0 20px 50px rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+.rcard .k{color:#5eead4;font-size:11px;font-weight:800;letter-spacing:.12em}
+.rcard .code{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;margin:4px 0 2px}
+.rcard .where{color:#cbd5e1;font-size:13px;font-weight:600}
+.rcard .row{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:6px 0;border-top:1px dashed #1e3a4a;margin-top:6px}
+.rcard .row span:first-child{color:var(--muted)}
+.rcard .eta{margin-top:10px;background:rgba(94,234,212,.1);border:1px solid rgba(94,234,212,.35);border-radius:10px;padding:8px 10px;font-size:12.5px;color:#ccfbf1}
+.rcard .x{position:absolute;right:10px;top:8px;background:none;border:0;color:var(--muted);font-size:18px}
+.cap{position:absolute;left:0;right:0;top:0;padding:7vh 24px 8vh;text-align:center;pointer-events:none;opacity:0;z-index:3;background:linear-gradient(180deg,rgba(3,7,14,.62),rgba(3,7,14,.32) 60%,rgba(3,7,14,0))}
+.cap h2{font-size:clamp(30px,5.2vw,64px);font-weight:800;letter-spacing:-.01em;line-height:1.05;color:#fff;text-shadow:0 4px 30px rgba(0,0,0,.55)}
+.cap h2 em{font-style:normal;color:#4ade80}
+.cap p{margin-top:12px;font-size:clamp(14px,1.9vw,22px);font-weight:600;color:#e2e8f0;text-shadow:0 2px 14px rgba(0,0,0,.7)}
+.kpiov{position:absolute;left:50%;bottom:7%;transform:translateX(-50%);display:none;grid-template-columns:repeat(4,1fr);gap:10px;width:min(860px,92%);z-index:3}
+.kpiov div{background:rgba(6,12,22,.86);border:1px solid #1f3b2e;border-radius:14px;padding:12px 14px;backdrop-filter:blur(6px)}
+.kpiov small{color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.kpiov b{display:block;font-size:clamp(20px,2.6vw,30px);font-weight:800;margin-top:4px;color:#4ade80;font-variant-numeric:tabular-nums}
+.endc{position:absolute;inset:auto 0 9% 0;text-align:center;display:none;z-index:3}
+.endc .cta{display:inline-block;margin-top:6px;background:linear-gradient(135deg,#16a34a,#0ea5e9);color:#fff;font-weight:800;font-size:clamp(15px,2vw,20px);padding:12px 22px;border-radius:999px;box-shadow:0 10px 40px rgba(34,197,94,.35)}
+.exitTour{position:absolute;right:14px;bottom:14px;z-index:4;display:none}
+body.presenting .exitTour{display:block}
+body.presenting header,body.presenting aside,body.presenting .toolbar,body.presenting .legend,body.presenting .zoom,body.presenting .hint3d{display:none!important}
+body.presenting main{display:block;padding:0}
+body.presenting .mapcard{position:fixed;inset:0;border:0;border-radius:0;height:auto;z-index:15}
+body.presenting .rcard{right:auto;left:50%;top:auto;bottom:6%;transform:translateX(-50%);width:min(420px,88%)}
+@media (max-width:640px){.search input{width:150px}.kpiov{grid-template-columns:1fr 1fr}.rcard{right:12px;left:12px;width:auto;top:auto;bottom:12px}}
 .touch{display:none}@media (pointer:coarse){.touch{display:inline}.mouse{display:none}}
 .sec h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .slot .big{display:flex;align-items:baseline;gap:10px}
@@ -167,6 +197,7 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
         <button data-s="1">1x</button><button data-s="10" class="on">10x</button><button data-s="30">30x</button><button data-s="90">90x</button>
       </div>
       <div class="smart" id="smart"><span>Slotting inteligente</span><button class="switch" id="smartBtn" aria-label="Activar slotting inteligente"></button></div>
+      <button class="btn go" id="tourBtn">▶ Recorrido guiado</button>
       <button class="btn" id="summaryBtn">📋 Resumen del turno</button>
       <button class="btn" id="dataBtn">Datos mock</button>
       <button class="btn" id="reset">↺ Reiniciar</button>
@@ -176,9 +207,12 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
     <section class="card mapcard">
       <div class="toolbar">
         <div class="seg" id="dim"><button data-d="3d" class="on">3D</button><button data-d="2d">2D</button></div>
+        <div class="seg only3d-t" id="look"><button data-l="real" class="on" title="Cajas con su aspecto real; el indicador va en la etiqueta del frente">Realista</button><button data-l="analisis" title="Toda la carga se pinta con el color del indicador">Análisis</button></div>
+        <form class="search" id="searchForm" autocomplete="off"><input id="searchQ" placeholder="🔎 Buscar LPN, SKU o producto…" aria-label="Buscar producto"></form>
         <div class="seg" id="modes"></div>
         <label>Nivel <select id="level"><option value="all">Todos (0–3)</option><option value="0">0 · Piso</option><option value="1">1</option><option value="2">2</option><option value="3">3 · Alto</option></select></label>
         <label><input type="checkbox" id="zones" checked> Zonas A/B</label>
+        <label class="only3d-t">Calidad <select id="quality"><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select></label>
         <div class="spacer"></div>
         <label id="mapInfo"></label>
       </div>
@@ -189,6 +223,11 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
         <div class="tip" id="tip"></div>
         <div class="zoom"><button id="zin" title="Acercar">+</button><button id="zout" title="Alejar">−</button><button id="zfit" title="Encuadrar">⤢</button><button id="zaisle" class="only3d" title="Vista desde un pasillo">⇶</button></div>
         <div class="detail" id="detail"></div>
+        <div class="rcard" id="rcard"></div>
+        <div class="cap" id="cap"><h2 id="capT"></h2><p id="capS"></p></div>
+        <div class="kpiov" id="kpiov"></div>
+        <div class="endc" id="endc"><div class="cta">Pedí la demo con el plano de tu depósito</div></div>
+        <button class="btn exitTour" id="exitTour">✕ Salir del recorrido</button>
       </div>
     </section>
     <aside>

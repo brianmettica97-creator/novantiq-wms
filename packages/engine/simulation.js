@@ -24,6 +24,7 @@ export function createSim(data, opts = {}) {
     history: [], lastHistT: -1, lastSuggT: -1e9,
   };
   st.palletMap = new Map(data.pallets.map((p) => [p.id, p]));
+  st.targetStock = opts.targetStock ?? data.pallets.length; // la operación mantiene el stock cerca de este valor
   st.skuMap = new Map(data.skus.map((s) => [s.id, s]));
   const n = opts.clarks ?? 5;
   st.clarks = Array.from({ length: n }, (_, i) => {
@@ -111,9 +112,9 @@ function generateTask(st) {
     }
   }
 
-  // 2) Picking vs. recepción: se balancea para mantener el stock cerca de 300 pallets
+  // 2) Picking vs. recepción: se balancea para mantener el stock cerca del objetivo
   const stock = st.palletMap.size;
-  const pPick = Math.max(0.2, Math.min(0.8, 0.5 + (stock - 300) / 40));
+  const pPick = Math.max(0.2, Math.min(0.8, 0.5 + (stock - st.targetStock) / Math.max(40, st.targetStock * 0.133)));
   if (rng() < pPick) {
     const bySku = pickableBySku(st);
     const skus = [...bySku.keys()].map((id) => st.skuMap.get(id));

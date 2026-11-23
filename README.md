@@ -11,7 +11,7 @@ app para la tablet del clark, putaway y picking FEFO, slotting inteligente ABC y
 ```
 db/
   schema.sql          Esquema PostgreSQL completo (multi-tenant, RLS, movimientos inmutables)
-  seed.sql            Datos de prueba: 300 pallets, 960 ubicaciones, 60 SKUs (generado)
+  seed.sql            Datos de prueba: 1.500 pallets, 1.920 ubicaciones, 60 SKUs (generado)
   mock-data.json      Los mismos datos en JSON
 packages/engine/      Motor compartido en JS puro (sin dependencias)
   layout.js           Geometría del depósito y rutas por pasillos
@@ -24,7 +24,10 @@ packages/engine/      Motor compartido en JS puro (sin dependencias)
 apps/api/             API Node (Express + pg + Socket.IO)
 apps/web/             Frontend Next.js: dashboard, mapa en vivo y app del clark
 apps/demo/            Demo comercial autocontenida
-  view3d.js           Vista 3D con Three.js (racks, pallets, clarks retráctiles, muelles y camiones)
+  view3d.js           Vista 3D con Three.js: modo realista/análisis, buscador con haz de luz, cámara animada
+  environment3d.js    Cielo, terreno, nave con corte automático, iluminación y post-procesado (calidad alta/media/baja)
+  models3d.js         Texturas procedurales y modelos (pallets, cajas, clarks, camiones, árboles)
+  tour.js             Recorrido guiado de ~90 s con textos (también se usa para grabar el video)
   scene-state.js      Animación 3D derivada de la simulación (torre, horquillas, traspaso del pallet)
 dist/wms-demo.html    La demo armada en un solo archivo, Three.js incluido (abrir con doble clic)
 scripts/              seed.mjs (genera el seed) · build-demo.mjs (arma la demo con esbuild)
@@ -40,7 +43,7 @@ Necesitás Node 20+ y Docker (o un PostgreSQL 16 instalado).
 docker compose up -d
 export DATABASE_URL=postgres://postgres:postgres@localhost:5432/wms
 npm run db:schema
-npm run db:seed            # genera y carga 300 pallets
+npm run db:seed            # genera y carga 1.500 pallets
 
 # 2. Dependencias
 npm install

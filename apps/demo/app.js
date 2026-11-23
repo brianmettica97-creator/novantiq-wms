@@ -3,6 +3,8 @@ import { createSim, stepSim, getKpis, setSmart, fmtClock } from '../../packages/
 import { createView, drawMap, hitTest, drawSparkline, MODES, PALETTE, toWorld, updateTransform } from '../../packages/engine/renderer.js';
 import { zoneOf } from '../../packages/engine/slotting.js';
 import { createView3D } from './view3d.js';
+import { createTour } from './tour.js';
+import { routePath, pathLength, AISLE_LETTERS } from '../../packages/engine/layout.js';
 import {
   createOps, stepOps, stockAccuracy, clientReport, occupancyProjection, palletHistory, simulateScan, submitChecklist,
   unblock, reportProblem, authorizeFefo, shiftSummary, checkPin, money, TARIFAS, CHECKLIST, PROBLEMAS, PIN_DEMO,
@@ -13,17 +15,19 @@ const fmt = (n, d = 0) => n.toLocaleString('es-AR', { maximumFractionDigits: d, 
 
 let seed = 2026;
 let data, st, ops;
+const PALLETS = 1500; // ~78 % de ocupación sobre 1.920 posiciones
 const view = createView();
 let speed = 10, running = true, lastFrame = performance.now(), lastUi = 0;
 
 function boot() {
-  data = generateMockData({ seed, pallets: 300 });
-  st = createSim(data, { clarks: 5, seed: seed + 1 });
+  data = generateMockData({ seed, pallets: PALLETS });
+  st = createSim(data, { clarks: 6, seed: seed + 1 });
   ops = createOps(st, { seed });
   sessions.clear(); closeTablet();
   $('whName').textContent = data.warehouse.name + ' · ' + data.locations.length + ' posiciones';
   view.selected = null; view.selectedClark = null;
   $('detail').style.display = 'none';
+  clearSearch();
   setSmartUi(false);
   updateUi(true);
 }
@@ -46,12 +50,18 @@ function resize() {
 let dim = '3d', v3 = null;
 function setDim(d) {
   if (d === '3d' && !v3) {
-    try { v3 = createView3D($('wrap'), view); v3.resize(W, H); bind3d(v3.canvas); }
+    try {
+      let q = null; try { q = localStorage.getItem('wms-demo-quality'); } catch {}
+      v3 = createView3D($('wrap'), view, { quality: q || undefined, brand: data.warehouse.name });
+      v3.resize(W, H); bind3d(v3.canvas); $('quality').value = v3.quality;
+    }
     catch (err) { console.error(err); d = '2d'; toast('Este equipo no soporta WebGL: se muestra el mapa 2D'); }
   }
   dim = d;
   $('wrap').classList.toggle('is3d', d === '3d');
   $('wrap').classList.toggle('is2d', d === '2d');
+  document.body.classList.toggle('dim2d', d === '2d');
+  renderLegend();
   [...$('dim').children].forEach((b) => b.classList.toggle('on', b.dataset.d === d));
   $('tip').style.display = 'none';
   try { localStorage.setItem('wms-demo-dim', d); } catch {}
@@ -87,13 +97,21 @@ $('dim').onclick = (e) => { const b = e.target.closest('button'); if (b) setDim(
 new ResizeObserver(resize).observe($('wrap'));
 window.addEventListener('resize', resize);
 
+// El reloj de la escena (clock, en ms) avanza con cada cuadro. En modo manual (grabación de video)
+// lo avanza __wms.tick(dt) con pasos fijos, así el resultado no depende de la velocidad del equipo.
+let clock = 0, manual = false;
+function advance(dt) {
+  clock += dt * 1000;
+  if (running) { stepSim(st, dt * speed); stepOps(ops, st); }
+  if (tour.running) tour.tick(dt, clock); else if (document.body.classList.contains('presenting')) endTour();
+  if (dim === '3d' && v3) v3.render(st, clock);
+  else drawMap(ctx, st, view, W, H, clock, canvas.width / (W || 1));
+  if (clock - lastUi > 250 || clock < lastUi) { updateUi(false); lastUi = clock; }
+}
 function frame(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
-  if (running) { stepSim(st, dt * speed); stepOps(ops, st); }
-  if (dim === '3d' && v3) v3.render(st, now);
-  else drawMap(ctx, st, view, W, H, now, canvas.width / (W || 1));
-  if (now - lastUi > 250) { updateUi(false); lastUi = now; }
+  if (!manual) advance(dt);
   requestAnimationFrame(frame);
 }
 
@@ -397,8 +415,8 @@ function updateUi(force) {
   $('kSaveM').textContent = fmt(k.metersSavedMonth / 1000, 0) + ' km';
   $('kSaveH').textContent = fmt(k.hoursSavedMonth, 0) + ' h';
   $('sugg').textContent = st.smart ? `${k.suggestions} sugerencias en cola` : '';
-  const sdpr = spark.width / (spark.getBoundingClientRect().width || 1);
-  drawSparkline(sctx, st.history, k.baseline, spark.width / sdpr, spark.height / sdpr, '#22c55e', sdpr);
+  const sw = spark.getBoundingClientRect().width, sdpr = spark.width / (sw || 1);
+  if (sw > 0 && spark.width > 0) drawSparkline(sctx, st.history, k.baseline, spark.width / sdpr, spark.height / sdpr, '#22c55e', sdpr);
 
   $('clarks').innerHTML = k.clarks.map(({ c, perHour }) => `
     <div class="clk ${view.selectedClark === c ? 'sel' : ''}" data-id="${c.id}">
@@ -417,6 +435,7 @@ function updateUi(force) {
   $('kRisk').textContent = money(cr.reduce((x, r) => x + r.riesgo, 0));
   $('kRiskS').textContent = `${cr.reduce((x, r) => x + r.riesgoPallets, 0)} pallets · valor de ejemplo`;
   renderMg();
+  if ($('kpiov').style.display === 'grid') renderKpiOverlay();
   $('mapInfo').textContent = `${data.locations.length} ubicaciones · 6 pasillos · 4 niveles`;
   if (tabletClark) renderTablet();
   if (view.selected && !force) showDetail(view.selected);
@@ -429,14 +448,12 @@ $('clarks').addEventListener('click', (e) => {
 // ---------- Controles ----------
 $('modes').innerHTML = Object.entries(MODES).map(([k, m]) => `<button data-m="${k}" class="${k === view.mode ? 'on' : ''}">${m.label}</button>`).join('');
 function renderLegend() {
-  $('legend').innerHTML = MODES[view.mode].legend.map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('') +
+  $('legend').innerHTML = (dim === '3d' && view.look === 'real' ? '<span style="color:#cbd5e1;font-weight:700">Color en la etiqueta de cada pallet:</span>' : '') + MODES[view.mode].legend.map(([t, c]) => `<span><i style="background:${c}"></i>${t}</span>`).join('') +
     (view.showZones ? `<span><i style="background:rgba(34,197,94,.25);border:1px dashed #22c55e"></i>Zona A (cerca de despacho)</span>` : '');
 }
 $('modes').onclick = (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  view.mode = b.dataset.m;
-  [...$('modes').children].forEach((x) => x.classList.toggle('on', x === b));
-  renderLegend();
+  setMode(b.dataset.m);
 };
 $('level').onchange = (e) => { view.level = e.target.value; };
 $('zones').onchange = (e) => { view.showZones = e.target.checked; renderLegend(); };
@@ -458,6 +475,119 @@ $('smartBtn').onclick = () => {
   if (on) toast(`Slotting activado: ${st.suggestions.length} pallets de alta rotación van a acercarse al muelle`);
 };
 $('reset').onclick = () => boot();
+
+// ---------- Realista / Análisis y calidad ----------
+function setLook(l) {
+  view.look = l;
+  [...$('look').children].forEach((b) => b.classList.toggle('on', b.dataset.l === l));
+  renderLegend();
+}
+$('look').onclick = (e) => { const b = e.target.closest('button'); if (b) setLook(b.dataset.l); };
+$('quality').onchange = (e) => {
+  if (!v3) return;
+  v3.setQuality(e.target.value);
+  try { localStorage.setItem('wms-demo-quality', e.target.value); } catch {}
+  toast('Calidad gráfica: ' + e.target.selectedOptions[0].text);
+};
+function setMode(m) {
+  view.mode = m;
+  [...$('modes').children].forEach((x) => x.classList.toggle('on', x.dataset.m === m));
+  renderLegend();
+}
+
+// ---------- Buscador ----------
+const CLARK_SPEED = 2.4; // m/s vacío
+let lastSearch = null;
+function findPallets(q) {
+  const s = q.trim().toLowerCase(); if (!s) return [];
+  const norm = s.replace(/^lpn-?/, '');
+  const stored = [...st.palletMap.values()].filter((p) => p.locId != null);
+  const byLpn = stored.filter((p) => p.lpn.toLowerCase() === s || p.lpn.toLowerCase().endsWith(norm.padStart(6, '0')) && /^\d+$/.test(norm));
+  if (byLpn.length) return byLpn;
+  return stored.filter((p) => { const k = st.skuMap.get(p.skuId); return k.code.toLowerCase() === s || k.desc.toLowerCase().includes(s) || k.ean === s; })
+    .sort((a, b) => (a.status === 'CUARENTENA') - (b.status === 'CUARENTENA') || a.exp - b.exp); // FEFO
+}
+function runSearch(q) {
+  const list = findPallets(q);
+  if (!list.length) { clearSearch(); toast('No se encontró “' + q + '”'); return null; }
+  const p = list[0], loc = st.locations[p.locId], sku = st.skuMap.get(p.skuId);
+  let best = null;
+  for (const c of st.clarks) {
+    if (c.blocked) continue;
+    const from = { x: c.x, y: c.y, aisle: c.path.length ? -1 : c.aisle };
+    const pts = routePath(from, loc.access), d = pathLength(from, pts);
+    if (!best || d < best.d) best = { c, d, pts: [{ x: c.x, y: c.y }, ...pts] };
+  }
+  lastSearch = { q, p, loc, sku, list, best };
+  view.selected = null; $('detail').style.display = 'none';
+  if (dim === '3d' && v3) { v3.setSearch(loc, best?.pts, clock); if (!tour.running) v3.flyToLoc(loc); }
+  else { view.selected = loc; showDetail(loc); }
+  renderSearchCard();
+  return lastSearch;
+}
+function renderSearchCard() {
+  const r = lastSearch; if (!r) { $('rcard').style.display = 'none'; return; }
+  const { p, loc, sku, list, best } = r;
+  const eta = best ? Math.round(best.d / CLARK_SPEED) : null;
+  $('rcard').innerHTML = `<button class="x" id="rcx">×</button><div class="k">● ENCONTRADO</div>
+    <div class="code">${loc.code}</div>
+    <div class="where">Pasillo ${AISLE_LETTERS[loc.aisle]} · posición ${loc.col + 1} · nivel ${loc.level}</div>
+    <div class="row"><span>Producto</span><span>${sku.desc}</span></div>
+    <div class="row"><span>Pallet · lote</span><span>${p.lpn} · ${p.lot}</span></div>
+    <div class="row"><span>Vence en</span><span>${p.exp} días · ${p.qty} cajas</span></div>
+    ${list.length > 1 ? `<div class="row"><span>Stock del producto</span><span>${list.length} pallets · este sale primero (FEFO)</span></div>` : ''}
+    ${best ? `<div class="eta">🚜 <b>${best.c.code}</b> (${best.c.operator}) está a <b>${fmt(best.d)} m</b> · llega en ~${eta < 90 ? eta + ' s' : fmt(eta / 60, 1) + ' min'}</div>` : ''}`;
+  $('rcard').style.display = 'block';
+  $('rcx').onclick = clearSearch;
+}
+function clearSearch() {
+  lastSearch = null; $('rcard').style.display = 'none';
+  if (v3) v3.setSearch(null);
+}
+$('searchForm').onsubmit = (e) => { e.preventDefault(); runSearch($('searchQ').value); $('searchQ').blur(); };
+
+// ---------- Recorrido guiado y modo presentación ----------
+let resultVisible = false;
+const tour = createTour({
+  get v3() { return v3; },
+  st: () => st,
+  setLook, setMode,
+  setSmart: (on) => { if (st.smart !== on) { setSmart(st, on); setSmartUi(on); } },
+  setSpeed: (x) => { speed = x; [...$('speed').children].forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === x)); },
+  search: (q) => runSearch(q),
+  clearSearch,
+  resultCard: (on) => { resultVisible = on; $('rcard').style.display = on && lastSearch ? 'block' : 'none'; },
+  caption: (title, sub, a) => { $('cap').style.opacity = a; if ($('capT').innerHTML !== title) { $('capT').innerHTML = title; $('capS').textContent = sub; } },
+  kpis: (on) => { $('kpiov').style.display = on ? 'grid' : 'none'; if (on) renderKpiOverlay(); },
+  end: (on) => { $('endc').style.display = on ? 'block' : 'none'; },
+  labels: (on) => { view.labels = on; },
+  paths: (on) => { view.paths = on; },
+});
+function renderKpiOverlay() {
+  const k = getKpis(st), acc = stockAccuracy(ops), cr = clientReport(ops, st);
+  $('kpiov').innerHTML = [
+    ['Ocupación', fmt(k.occupancy * 100, 1) + ' %'], ['Exactitud de stock', acc == null ? '–' : fmt(acc * 100, 1) + ' %'],
+    ['Por vencer < 30 d', money(cr.reduce((x, r) => x + r.riesgo, 0))], ['Movimientos / hora', fmt(k.palletsPerHour)],
+  ].map(([a, b]) => `<div><small>${a}</small><b>${b}</b></div>`).join('');
+}
+function startTour() {
+  if (dim !== '3d') setDim('3d');
+  if (!v3) return;
+  closeTablet(); clearSearch(); view.selected = null; $('detail').style.display = 'none';
+  document.body.classList.add('presenting');
+  requestAnimationFrame(() => { resize(); });
+  running = true;
+  tour.start();
+}
+function endTour() {
+  if (tour.running) tour.stop();
+  document.body.classList.remove('presenting');
+  $('cap').style.opacity = 0; $('kpiov').style.display = 'none'; $('endc').style.display = 'none';
+  setLook('real'); setSmart(st, false); setSmartUi(false); setMode('rotacion');
+  requestAnimationFrame(() => { resize(); if (v3) v3.home(); });
+}
+$('tourBtn').onclick = startTour;
+$('exitTour').onclick = endTour;
 
 function toast(msg) {
   const t = $('toast'); t.textContent = msg; t.classList.add('show');
@@ -491,13 +621,15 @@ $('copyJson').onclick = async () => {
 $('regen').onclick = () => { seed = Math.floor(Math.random() * 1e6); boot(); $('dataModal').classList.remove('open'); toast('Nuevo depósito generado · semilla ' + seed); };
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeTablet(); $('dataModal').classList.remove('open'); $('sumModal').classList.remove('open'); }
+  if (e.key === 'Escape') { closeTablet(); $('dataModal').classList.remove('open'); $('sumModal').classList.remove('open'); if (document.body.classList.contains('presenting')) endTour(); }
   if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('play').click(); }
   if (e.key.toLowerCase() === 's' && e.target === document.body) $('smartBtn').click();
 });
 
 // API mínima para grabar el video de demo
-window.__wms = { get st() { return st; }, get dim() { return dim; }, setDim, focusClark: (i, d) => { const c = st.clarks[i]; if (v3) v3.focus(c.x, c.y, d); },view,setSpeed: (s) => { speed = s; }, smart: () => $('smartBtn').click(), openTablet: (i) => openTablet(st.clarks[i]), closeTablet, selectLoc: (code) => { const l = st.locations.find((x) => x.code === code); view.selected = l; showDetail(l); }, step: (s) => { stepSim(st, s); stepOps(ops, st); }, get ops() { return ops; } };
+window.__wms = { get st() { return st; }, get dim() { return dim; }, setDim, focusClark: (i, d) => { const c = st.clarks[i]; if (v3) v3.focus(c.x, c.y, d); },view,setSpeed: (s) => { speed = s; }, smart: () => $('smartBtn').click(), openTablet: (i) => openTablet(st.clarks[i]), closeTablet, selectLoc: (code) => { const l = st.locations.find((x) => x.code === code); view.selected = l; showDetail(l); }, step: (s) => { stepSim(st, s); stepOps(ops, st); }, get ops() { return ops; },
+  get v3() { return v3; }, tour, startTour, endTour, runSearch, clearSearch, setLook, setMode,
+  manual: (on) => { manual = on; }, tick: (dt) => advance(dt), get clock() { return clock; }, get running() { return running; }, set running(v) { running = v; } };
 
 renderLegend();
 boot();
