@@ -1,5 +1,6 @@
 import { makeRng } from './rng.js';
 import { buildLayout } from './layout.js';
+import { canPlace, palletKg } from './capacity.js';
 
 // Catálogo ficticio de un centro de distribución de consumo masivo.
 // [descripción, categoría, cajas por pallet, vida útil en días]
@@ -36,6 +37,9 @@ const CATALOG = [
   ['Maní salado 200 g x24', 'Almacén', 80, 240], ['Papas fritas 145 g x20', 'Almacén', 60, 150],
 ];
 
+// Peso aproximado de cada caja (kg), en el mismo orden que CATALOG.
+const KG_CASE = [14, 12.5, 10.4, 17, 10.3, 12.6, 12.2, 3.8, 10.3, 10.2, 9.6, 16.8, 7.6, 1.2, 10.2, 6.9, 9.4, 6.4, 12.4, 11.4, 5.3, 5.6, 6.3, 5.4, 8.2, 10.2, 6.9, 4.6, 9.1, 6.2, 11.4, 0.9, 4.7, 1.4, 10.2, 10.2, 8.2, 3.1, 4.9, 2.1, 2.7, 15.2, 12.3, 2.8, 12.4, 6.9, 8.2, 7.4, 8.1, 3.4, 4.1, 2.9, 2.3, 2.6, 9.2, 6, 6.8, 3.1, 5.3, 3.3];
+
 const CLIENTS = ['Distribuidora Del Plata', 'Mayorista Sur', 'Consumo Norte SA'];
 
 // Clasificación ABC por frecuencia de picks (no por unidades): A ≈ 80 %, B ≈ 15 %, C ≈ 5 %.
@@ -61,7 +65,7 @@ export function generateMockData({ seed = 2026, pallets: nPallets = 300, history
     id: i + 1,
     code: `SKU-${String(1001 + i)}`,
     ean: `779${String(1000000000 + i * 7919).slice(0, 10)}`,
-    desc, cat, casesPerPallet: cajas, shelfLife: vida,
+    desc, cat, casesPerPallet: cajas, shelfLife: vida, kgCase: KG_CASE[i],
     client: CLIENTS[i % CLIENTS.length],
     rank: order.indexOf(i),
   }));
@@ -95,10 +99,10 @@ export function generateMockData({ seed = 2026, pallets: nPallets = 300, history
   // --- Pallets ubicados "como cayó" (situación típica sin WMS: sin slotting) ---
   const freeLocs = rng.shuffle([...layout.locations]);
   const pallets = [];
+  const placed = { locations: layout.locations, palletMap: new Map(), skuMap: new Map(skus.map((s) => [s.id, s])) };
   let seq = 1;
   skus.forEach((s, i) => {
     for (let k = 0; k < counts[i]; k++) {
-      const loc = freeLocs.pop();
       const age = rng.int(3, Math.floor(s.shelfLife * 0.9));
       let exp = s.shelfLife - age;
       if (rng() < 0.07) exp = rng.int(4, 29);          // algunos por vencer → alertas FEFO
@@ -111,10 +115,18 @@ export function generateMockData({ seed = 2026, pallets: nPallets = 300, history
         exp,
         qty: s.casesPerPallet - (rng() < 0.25 ? rng.int(1, Math.floor(s.casesPerPallet * 0.6)) : 0),
         status: q < 0.85 ? 'DISPONIBLE' : q < 0.95 ? 'RESERVADO' : 'CUARENTENA',
-        locId: loc.id,
+        locId: null,
         receivedDaysAgo: age,
       };
+      // primera ubicación libre (al azar) donde el rack aguanta el peso: posición, viga y módulo
+      const kg = palletKg(s, p.qty), skipped = [];
+      let loc = freeLocs.pop();
+      while (loc && !canPlace(placed, loc, kg)) { skipped.push(loc); loc = freeLocs.pop(); }
+      freeLocs.push(...skipped.reverse());
+      if (!loc) throw new Error('No hay ubicaciones con capacidad para ' + nPallets + ' pallets');
+      p.locId = loc.id;
       loc.palletId = p.id;
+      placed.palletMap.set(p.id, p);
       pallets.push(p);
       seq++;
     }

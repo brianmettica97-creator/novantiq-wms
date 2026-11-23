@@ -12,7 +12,7 @@ import { L, aisleY, AISLE_LETTERS } from '../../packages/engine/layout.js';
 import { PALETTE } from '../../packages/engine/renderer.js';
 import { RACK_H } from './scene-state.js';
 import {
-  canvasTex, textTex, concreteTex, asphaltTex, grassTex, claddingTex, innerWallTex, radialTex, verticalFadeTex, truck, trees,
+  canvasTex, textTex, concreteTex, asphaltTex, grassTex, claddingTex, innerWallTex, radialTex, verticalFadeTex, truck, trees, mergeStatic,
 } from './models3d.js';
 
 export const WALL_H = 10;
@@ -21,11 +21,12 @@ export const HORIZON = new THREE.Color('#cfd8e3');
 export const QUALITY = {
   alta: { pixelRatio: 2, shadows: 4096, ao: true, bloom: true, cones: true },
   media: { pixelRatio: 1.5, shadows: 2048, ao: false, bloom: true, cones: true },
-  baja: { pixelRatio: 1, shadows: 0, ao: false, bloom: false, cones: false },
+  baja: { pixelRatio: 1.25, shadows: 0, ao: false, bloom: false, cones: false }, // celulares: sin sombras ni post-procesado
 };
 export function defaultQuality() {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-  return coarse || window.innerWidth < 1100 ? 'media' : 'alta';
+  if (coarse) return 'baja'; // celulares y tablets: lo más fluido
+  return window.innerWidth < 1100 ? 'media' : 'alta';
 }
 
 const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s3 = new THREE.Vector3(), p3 = new THREE.Vector3();
@@ -129,7 +130,7 @@ export function buildEnvironment(scene, renderer, { brand = 'CENTRO DE DISTRIBUC
     const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY;
     const inner = new THREE.Mesh(new THREE.PlaneGeometry(len, h), inMat(len)); inner.position.y = y; inner.receiveShadow = true;
     const outer = new THREE.Mesh(new THREE.PlaneGeometry(len, h), outMat(len)); outer.position.set(0, y, -0.25); outer.rotation.y = Math.PI; outer.receiveShadow = true;
-    g.add(inner, outer); scene.add(g);
+    g.add(inner, outer); g.userData.dynamic = true; scene.add(g);
     const n = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY); // normal hacia afuera
     env.walls.push({ group: g, n, p: new THREE.Vector3(x, 0, z) });
     return g;
@@ -194,6 +195,7 @@ export function buildEnvironment(scene, renderer, { brand = 'CENTRO DE DISTRIBUC
     const t = truck(c, null, { lights: false }); t.position.set(L.dockX + 18, 0, yardZ0 + 6.3 + i * 4.6); scene.add(t);
   });
   env.movingTruck = truck('#0f766e', null, { lights: true });
+  mergeStatic(env.movingTruck); env.movingTruck.userData.dynamic = true;
   env.movingTruck.rotation.y = -Math.PI / 2; // circula hacia +z
   scene.add(env.movingTruck);
   env.roadX = roadX;
@@ -243,6 +245,9 @@ export function buildEnvironment(scene, renderer, { brand = 'CENTRO DE DISTRIBUC
   });
   scene.add(housing, bulb, cones, pools);
   env.lampCones = cones; env.lampPools = pools; env.lampBulbs = bulb;
+  truss.userData.dynamic = true;
+  // todo lo fijo (camiones estacionados, muelles, carteles, playón) se une por material: menos llamadas de dibujo
+  env.mergedGroups = mergeStatic(scene);
   return env;
 }
 

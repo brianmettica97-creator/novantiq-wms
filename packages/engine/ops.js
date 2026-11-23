@@ -10,6 +10,7 @@
 // - Resumen del turno y proyección de ocupación
 import { makeRng } from './rng.js';
 import { addLog, fmtClock } from './simulation.js';
+import { CAP, canPlace, weightOf, capacityReport } from './capacity.js';
 
 /** Tarifas y valores de EJEMPLO (en el piloto salen del contrato con cada cliente). */
 export const TARIFAS = { almacenajePalletDia: 1900, entradaPallet: 6500, salidaPallet: 6500 };
@@ -28,8 +29,10 @@ export const MIN_VIDA_UTIL = 0.5;     // se acepta mercadería con al menos 50 %
 const PROVEEDORES = ['Bebidas del Sur SA', 'Molinos Pampa', 'Lácteos La Serena', 'Química Hogar SRL', 'Cosmética Andina', 'Alimentos Patagonia'];
 const SAMPLE_EVERY = 600;
 
-export const money = (n) => '$ ' + Math.round(n).toLocaleString('es-AR');
-const pct = (v) => (v * 100).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+const NF0 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+const NF1 = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+export const money = (n) => '$ ' + NF0.format(Math.round(n));
+const pct = (v) => NF1.format(v * 100) + ' %';
 
 function addMove(ops, palletId, m) {
   if (!ops.ledger.has(palletId)) ops.ledger.set(palletId, []);
@@ -284,7 +287,7 @@ export function simulateScan(ops, st, c, correcto) {
   const sku = st.skuMap.get(p.skuId);
   const target = taking ? t.from : t.to;
   const targetTxt = target.kind === 'loc' ? st.locations[target.id].code : 'MUELLE ' + st.docks[target.id].code;
-  if (correcto) return { ok: true, titulo: '✓ Correcto', texto: taking ? `${p.lpn} · ${sku.desc} · lote ${p.lot}` : `Destino ${targetTxt} confirmado` };
+  if (correcto) return { ok: true, titulo: '✓ Correcto', texto: taking ? `${p.lpn} · ${sku.desc} · lote ${p.lot} · ${Math.round(weightOf(st, p))} kg` : `Destino ${targetTxt} confirmado` };
   ops.wrongScans++;
   if (taking) {
     const later = [...st.palletMap.values()].filter((q) => q.skuId === p.skuId && q.id !== p.id && q.locId != null && q.exp > p.exp)
@@ -298,6 +301,13 @@ export function simulateScan(ops, st, c, correcto) {
     }
     const other = [...st.palletMap.values()].find((q) => q.skuId !== p.skuId && q.locId != null);
     return { ok: false, titulo: '✗ Pallet equivocado', texto: `Escaneaste ${other.lpn} (${st.skuMap.get(other.skuId).desc}). Buscá ${p.lpn} en ${targetTxt}.`, wrong: other.lpn };
+  }
+  const kg = Math.round(weightOf(st, p));
+  if (target.kind === 'loc') {
+    // primero, una ubicación de nivel alto donde el rack no aguanta este pallet (si existe cerca)
+    const t0 = st.locations[target.id];
+    const heavyBlock = st.locations.find((l) => l.aisle === t0.aisle && l.level >= 1 && l.palletId == null && !l.reserved && !canPlace(st, l, kg));
+    if (heavyBlock) return { ok: false, titulo: '✋ El rack no aguanta ese peso', texto: `Escaneaste ${heavyBlock.code}: el pallet pesa ${kg} kg y supera la capacidad de esa viga o módulo. Va en ${targetTxt}.` };
   }
   const near = target.kind === 'loc' ? st.locations[Math.min(st.locations.length - 1, target.id + 4)].code : 'MUELLE D9';
   return { ok: false, titulo: '✗ Ubicación equivocada', texto: `Escaneaste ${near}. El pallet va en ${targetTxt}.` };
@@ -318,6 +328,7 @@ export function shiftSummary(ops, st, whName = 'Depósito') {
   const proj = occupancyProjection(ops, st);
   const recDiffs = ops.receivingIssues.length;
   const blocked = st.clarks.filter((c) => c.blocked).length;
+  const cap = capacityReport(st);
   const lines = [
     `*${whName} · resumen ${fmtClock(ops.shiftStart)}–${fmtClock(st.t)}*`,
     `📥 Entraron ${ops.received} pallets · 📤 salieron ${ops.dispatched}`,
@@ -325,9 +336,10 @@ export function shiftSummary(ops, st, whName = 'Depósito') {
     `⏳ Por vencer (<30 d): ${riesgoPallets} pallets · ${money(riesgo)}`,
     `🧾 Facturación del día (estimada): ${money(facturado)}`,
     `📦 Ocupación ${pct(proj.occupied / proj.total)}` + (proj.estado === 'CRECE' ? ` · al 90 % en ~${Math.ceil(proj.turnosHasta90)} turnos` : proj.estado === 'ESTABLE' ? ' · estable' : ''),
+    `🏗 Racks: ${cap.beamsOver + cap.modulesOver === 0 ? 'ninguna viga excedida' : cap.beamsOver + ' vigas excedidas'} · ${cap.beamsHigh} vigas al 90 % o más`,
     `⚠ Problemas: ${ops.problems.length} reportados · ${recDiffs} diferencias en recepción` + (blocked ? ` · ${blocked} equipo(s) bloqueado(s)` : ''),
   ];
-  return { acc, riesgo, riesgoPallets, facturado, proj, text: lines.join('\n') };
+  return { acc, riesgo, riesgoPallets, facturado, proj, cap, text: lines.join('\n') };
 }
 
 /** Historia de un pallet, de la más reciente a la más vieja. */

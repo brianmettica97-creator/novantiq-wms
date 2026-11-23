@@ -1,6 +1,7 @@
 import { makeRng } from './rng.js';
 import { L, routePath, pathLength } from './layout.js';
 import { computeThresholds, travelIndex, choosePutawayLocation, computeSuggestions, WORK_DAYS_PER_MONTH } from './slotting.js';
+import { canPlace, palletKg, weightOf } from './capacity.js';
 
 const OPERATORS = ['Marcos', 'Lucía', 'Diego', 'Romina', 'Julián', 'Sofía', 'Nahuel', 'Carla'];
 const CLARK_COLORS = ['#38bdf8', '#f472b6', '#facc15', '#a78bfa', '#34d399', '#fb923c', '#60a5fa', '#e879f9'];
@@ -74,7 +75,7 @@ function pointOf(st, ref) {
 }
 
 function releaseTask(st, t) {
-  if (t.to.kind === 'loc') st.locations[t.to.id].reserved = false;
+  if (t.to.kind === 'loc') { const l = st.locations[t.to.id]; l.reserved = false; l.reservedKg = 0; }
   if (t.palletId) st.targetedPallets.delete(t.palletId);
 }
 
@@ -107,7 +108,9 @@ function generateTask(st) {
       const p = st.palletMap.get(s.palletId);
       const to = st.locations[s.toId];
       if (!p || p.locId !== s.fromId || st.targetedPallets.has(p.id) || to.palletId != null || to.reserved) continue;
-      to.reserved = true; st.targetedPallets.add(p.id);
+      const kg = weightOf(st, p);
+      if (!canPlace(st, to, kg)) continue; // la viga o el módulo ya no aguantan ese peso
+      to.reserved = true; to.reservedKg = kg; st.targetedPallets.add(p.id);
       return newTask(st, { type: 'REPOSICION', palletId: p.id, from: { kind: 'loc', id: s.fromId }, to: { kind: 'loc', id: s.toId }, savings: s.savings, subkind: s.kind });
     }
   }
@@ -128,9 +131,10 @@ function generateTask(st) {
   }
   // Recepción + putaway
   const sku = rng.weighted(st.skus, (s) => s.ppd + 0.05);
-  const loc = choosePutawayLocation(st, sku, st.smart);
+  const kgIn = palletKg(sku, sku.casesPerPallet);
+  const loc = choosePutawayLocation(st, sku, st.smart, kgIn);
   if (!loc) return null;
-  loc.reserved = true;
+  loc.reserved = true; loc.reservedKg = kgIn; // el peso en camino ya cuenta para la capacidad del rack
   const id = st.palletSeq++;
   const p = {
     id, lpn: `LPN-${String(id).padStart(6, '0')}`, skuId: sku.id,
@@ -178,7 +182,7 @@ function finishHandle(st, c) {
   const sku = st.skuMap.get(p.skuId);
   if (t.to.kind === 'loc') {
     const loc = st.locations[t.to.id];
-    loc.palletId = p.id; loc.reserved = false; p.locId = loc.id; p.inbound = false;
+    loc.palletId = p.id; loc.reserved = false; loc.reservedKg = 0; p.locId = loc.id; p.inbound = false;
   } else {
     st.palletMap.delete(p.id); // despachado
   }

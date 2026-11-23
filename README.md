@@ -17,6 +17,7 @@ packages/engine/      Motor compartido en JS puro (sin dependencias)
   layout.js           Geometría del depósito y rutas por pasillos
   mockdata.js         Generador de datos falsos (semilla → mismo depósito siempre)
   slotting.js         Zonas A/B/C, putaway inteligente, sugerencias y ahorro
+  capacity.js         Peso de cada pallet y capacidad de carga de los racks (posición, viga y módulo)
   ops.js              Gestión: historia de pallets, inventario cíclico, recepción vs. remito, facturación, tablet, resumen
   simulation.js       Simulación de clarks, tareas y KPIs
   renderer.js         Dibujo del mapa en <canvas>
@@ -97,6 +98,10 @@ Eventos de Socket.IO: `mapa:cambio`, `tarea:nueva`, `tarea:asignada`, `alerta`, 
 - **Dos clarks nunca agarran la misma tarea**: `FOR UPDATE SKIP LOCKED` y un índice único que impide dos tareas abiertas hacia la misma ubicación.
 - **Multi-tenant**: todas las tablas llevan `tenant_id` con Row Level Security. La API fija `app.tenant_id` por transacción
   (en producción conectate con un rol que no sea dueño de las tablas para que RLS aplique).
+- **Capacidad de los racks**: un pallet pesa 25 kg de tara + cajas × kg por caja. Solo se guarda donde la posición
+  (1.200 kg), el par de vigas (2.000 kg) y el módulo (5.400 kg) lo aguantan, contando los pallets que van en camino;
+  los de más de 800 kg prefieren los niveles bajos. En la base, `cabe_en_ubicacion()` filtra el putaway y el slotting
+  y el trigger `pallets_capacidad` rechaza cualquier movimiento que exceda el rack. Valores en `packages/engine/capacity.js`.
 - **Slotting**: cada ubicación tiene un `slot_score` = distancia real por pasillos al muelle de despacho + penalización por altura.
   Los SKUs A (≈80 % de los picks) van a los scores más bajos.
 

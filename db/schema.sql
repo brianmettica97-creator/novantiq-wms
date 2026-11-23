@@ -70,7 +70,11 @@ CREATE TABLE locations (
   x numeric(8,2), y numeric(8,2), z numeric(8,2),
   tipo               location_type NOT NULL DEFAULT 'RACK_SELECTIVO',
   capacidad_pallets  int NOT NULL DEFAULT 1,
-  peso_max_kg        numeric(8,2) DEFAULT 1200,
+  peso_max_kg        numeric(8,2) DEFAULT 1200,  -- por posición (pallet sobre vigas); en el piso, límite del pallet
+  viga_codigo        text,                       -- par de vigas (un nivel de una bahía): comparten carga
+  viga_max_kg        numeric(8,2) DEFAULT 2000,
+  modulo_codigo      text,                       -- bahía completa (todos los niveles sobre vigas)
+  modulo_max_kg      numeric(8,2) DEFAULT 5400,
   alto_max_cm        int DEFAULT 180,
   distancia_a_muelle numeric(8,2),           -- precalculada: clave del slotting
   slot_score         numeric(8,2),           -- distancia + penalización por altura
@@ -96,7 +100,7 @@ CREATE TABLE skus (
   ean                   text,
   unidades_por_caja     int  DEFAULT 1,
   cajas_por_pallet      int  DEFAULT 1,
-  peso_kg               numeric(8,2),
+  peso_kg               numeric(8,2),           -- peso de una caja (kg)
   volumen_m3            numeric(8,3),
   requiere_lote         boolean NOT NULL DEFAULT true,
   requiere_vencimiento  boolean NOT NULL DEFAULT true,
@@ -309,6 +313,60 @@ CREATE TABLE slotting_suggestions (
   task_id                uuid REFERENCES tasks(id),
   created_at             timestamptz NOT NULL DEFAULT now()
 );
+
+-- ---------- Capacidad de carga de los racks -------------------------
+-- Peso de un pallet: tara + cajas × peso por caja.
+CREATE OR REPLACE FUNCTION peso_pallet(p_pallet uuid) RETURNS numeric LANGUAGE sql STABLE AS $$
+  SELECT 25 + COALESCE(sum(pc.cantidad * COALESCE(s.peso_kg, 0)), 0)
+  FROM pallet_contents pc JOIN skus s ON s.id = pc.sku_id
+  WHERE pc.pallet_id = p_pallet
+$$;
+
+-- ¿Entra un pallet de p_kg en la ubicación sin superar la posición, el par de vigas ni el módulo?
+-- Cuenta los pallets guardados y los que van en camino (tareas abiertas hacia ese módulo).
+-- p_excluir: el propio pallet (si ya está en el módulo o tiene la tarea hacia esa ubicación).
+CREATE OR REPLACE FUNCTION cabe_en_ubicacion(p_location uuid, p_kg numeric, p_excluir uuid DEFAULT NULL)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+  WITH l AS (SELECT * FROM locations WHERE id = p_location),
+  carga AS (
+    SELECT x.viga_codigo, x.nivel, peso_pallet(p.id) AS kg
+    FROM l JOIN locations x ON x.warehouse_id = l.warehouse_id AND x.modulo_codigo = l.modulo_codigo
+    JOIN pallets p ON p.location_id = x.id AND p.estado <> 'DESPACHADO'
+    WHERE p.id IS DISTINCT FROM p_excluir
+    UNION ALL
+    SELECT x.viga_codigo, x.nivel, peso_pallet(t.pallet_id)
+    FROM l JOIN locations x ON x.warehouse_id = l.warehouse_id AND x.modulo_codigo = l.modulo_codigo
+    JOIN tasks t ON t.to_location_id = x.id AND t.estado IN ('PENDIENTE','ASIGNADA','EN_CURSO')
+    WHERE t.pallet_id IS DISTINCT FROM p_excluir)
+  SELECT p_kg <= l.peso_max_kg
+     AND (l.nivel = 0 OR l.modulo_codigo IS NULL OR (
+          p_kg + COALESCE((SELECT sum(kg) FROM carga WHERE viga_codigo = l.viga_codigo), 0) <= l.viga_max_kg
+      AND p_kg + COALESCE((SELECT sum(kg) FROM carga WHERE nivel > 0), 0) <= l.modulo_max_kg))
+  FROM l
+$$;
+
+-- Última barrera: ningún movimiento puede dejar un pallet donde el rack no lo aguanta.
+CREATE OR REPLACE FUNCTION trg_capacidad_rack() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.location_id IS NOT NULL AND NEW.location_id IS DISTINCT FROM OLD.location_id
+     AND NOT cabe_en_ubicacion(NEW.location_id, peso_pallet(NEW.id), NEW.id) THEN
+    RAISE EXCEPTION 'La ubicación no soporta el peso del pallet % (% kg)', NEW.lpn_code, round(peso_pallet(NEW.id))
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER pallets_capacidad BEFORE UPDATE OF location_id ON pallets
+  FOR EACH ROW EXECUTE FUNCTION trg_capacidad_rack();
+
+-- Carga por viga para el dashboard
+CREATE VIEW v_carga_vigas AS
+SELECT l.warehouse_id, l.viga_codigo, max(l.viga_max_kg) AS capacidad_kg,
+       round(COALESCE(sum(peso_pallet(p.id)), 0)) AS carga_kg,
+       round(100 * COALESCE(sum(peso_pallet(p.id)), 0) / NULLIF(max(l.viga_max_kg), 0), 1) AS uso_pct
+FROM locations l
+LEFT JOIN pallets p ON p.location_id = l.id AND p.estado <> 'DESPACHADO'
+WHERE l.nivel > 0 AND l.viga_codigo IS NOT NULL
+GROUP BY l.warehouse_id, l.viga_codigo;
 
 -- ---------- Vistas para el dashboard --------------------------------
 CREATE MATERIALIZED VIEW mv_ocupacion AS

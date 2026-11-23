@@ -1,5 +1,9 @@
 import { L, rackY, aisleY, AISLE_LETTERS } from './layout.js';
 import { zoneOf } from './slotting.js';
+import { beamUse } from './capacity.js';
+
+export const LOAD_COLORS = ['#14b8a6', '#22c55e', '#f59e0b', '#ef4444'];
+export function loadColor(u) { return u < 0.5 ? LOAD_COLORS[0] : u < 0.8 ? LOAD_COLORS[1] : u < 0.95 ? LOAD_COLORS[2] : LOAD_COLORS[3]; }
 
 export const PALETTE = {
   bg: '#070b14', floor: '#0e1626', floorLine: 'rgba(148,163,184,0.06)', wall: '#334155',
@@ -16,6 +20,7 @@ export const MODES = {
   estado: { label: 'Estado', legend: [['Disponible', PALETTE.DISPONIBLE], ['Reservado', PALETTE.RESERVADO], ['Cuarentena', PALETTE.CUARENTENA], ['Vacía', PALETTE.empty]] },
   vencimiento: { label: 'Vencimiento', legend: [['< 30 días', '#ef4444'], ['30–90 días', '#f59e0b'], ['90–180 días', '#a3e635'], ['> 180 días', '#14b8a6']] },
   ocupacion: { label: 'Ocupación', legend: [['Ocupada', PALETTE.occupied], ['Reservada (en camino)', PALETTE.reservedSlot], ['Libre', PALETTE.empty]] },
+  carga: { label: 'Carga (kg)', legend: [['Viga < 50 %', '#14b8a6'], ['50–80 %', '#22c55e'], ['80–95 %', '#f59e0b'], ['> 95 % de su capacidad', '#ef4444']] },
 };
 
 export function createView() {
@@ -46,6 +51,7 @@ function locRect(loc, levelFilter) {
 export function locColor(st, loc, mode) {
   const p = loc.palletId != null ? st.palletMap.get(loc.palletId) : null;
   if (mode === 'ocupacion') return p ? PALETTE.occupied : loc.reserved ? PALETTE.reservedSlot : PALETTE.empty;
+  if (mode === 'carga') return p || loc.reserved ? (loc.id == null ? PALETTE.occupied : loadColor(beamUse(st, loc))) : PALETTE.empty;
   if (!p) return loc.reserved ? PALETTE.reservedSlot : PALETTE.empty;
   if (mode === 'rotacion') return PALETTE[st.skuMap.get(p.skuId).abc];
   if (mode === 'estado') return PALETTE[p.status];

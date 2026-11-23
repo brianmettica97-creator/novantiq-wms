@@ -27,19 +27,23 @@ Todo lo que se ve sale de esa simulación: no son pantallas armadas a mano.
    - Con una tarea de picking, tocá **"Escanear otro"**: el sistema frena la salida si el pallet no respeta
      **FEFO** (hay otro del mismo producto que vence antes) y pide autorización del supervisor, que queda registrada.
    - **Reportar problema**: ubicación ocupada, pallet dañado, faltante o etiqueta ilegible.
-5. **Panel "Gestión del depósito"** (columna derecha):
+5. **Modo "Carga (kg)"** (arriba del mapa): colorea cada posición según cuánto peso tiene su viga. En la ficha de una
+   ubicación se ve el peso del pallet y la carga de la viga y del módulo. El sistema nunca guarda un pallet donde el
+   rack no lo aguanta (1.200 kg por posición, 2.000 kg por par de vigas, 5.400 kg por módulo) y manda los pesados abajo.
+6. **Panel "Gestión del depósito"** (columna derecha):
    - *Inventario*: **exactitud de stock** con conteo cíclico. Un operario cuenta unas 30 ubicaciones por hora,
      empezando por los productos A, y el sistema ajusta las diferencias que encuentra. También muestra la proyección de ocupación.
    - *Clientes*: pallets por cliente, **plata en riesgo por vencimiento** y **facturación estimada**
      (almacenaje por pallet-día + entradas + salidas).
    - *Recepción*: cada camión con su remito y las **diferencias** detectadas: cajas de menos, vencimiento corto o lote no declarado.
    - *Problemas*: lo que reportaron los operarios.
-6. **"📋 Resumen del turno"** (arriba): el mensaje que recibiría el dueño al cierre, listo para WhatsApp.
+7. **"📋 Resumen del turno"** (arriba): el mensaje que recibiría el dueño al cierre, listo para WhatsApp.
 
 ## Qué está simulado y qué es real
 
 | | Estado |
 |---|---|
+| Peso de pallets y capacidad de racks | **Real** en el motor y la demo; en la base está la función y el trigger (falta probarlos con datos reales). Las capacidades son típicas: en un piloto salen de la placa de carga del rack |
 | Motor de slotting ABC, putaway inteligente y FEFO | **Real.** Es el mismo código que usa el sistema y tiene tests automáticos |
 | Base de datos PostgreSQL (stock inmutable, multi-cliente, dos clarks nunca toman la misma tarea) | **Diseñada** (`db/schema.sql`). Falta ponerla en marcha y testearla con datos reales |
 | Conteo cíclico, recepción contra remito, facturación, checklist, resumen | **Lógica real y testeada en la demo.** Falta llevarla a la base de datos y a la app de la tablet |
@@ -67,3 +71,4 @@ Todo lo que se ve sale de esa simulación: no son pantallas armadas a mano.
 4. ¿Qué tan seguido llegan **diferencias contra el remito** y cómo se resuelven hoy con el proveedor?
 5. ¿Qué **ERP** usan los clientes y cómo les pasan hoy los pedidos (mail, Excel, sistema)?
 6. Mirando la demo: ¿**qué falta o qué sobra** para que lo usen en el día a día? ¿Qué le cambiarías a la tablet del clark?
+7. ¿Qué **capacidad de carga** tienen sus racks (por par de vigas y por módulo) y cómo controlan hoy que no se excedan? ¿Usan alguna regla de pesados abajo?

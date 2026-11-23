@@ -43,8 +43,9 @@ export async function recibirPallet(client, ctx, { dockCodigo, skuCodigo, ean, c
     [ctx.tenantId, pallet.id, sku.id, lotId, cantidad, ctx.userId || null]);
 
   const u = await umbrales(client, ctx.warehouseId);
-  const destino = await one(client, SQL.ubicacionPutaway, [ctx.warehouseId, sku.clase_abc || 'C', u.a, u.b]);
-  if (!destino) throw new HttpError(409, 'No hay ubicaciones libres');
+  const { kg } = await one(client, `SELECT peso_pallet($1) AS kg`, [pallet.id]);
+  const destino = await one(client, SQL.ubicacionPutaway, [ctx.warehouseId, sku.clase_abc || 'C', u.a, u.b, kg]);
+  if (!destino) throw new HttpError(409, `No hay ubicaciones libres que soporten ${Math.round(kg)} kg`);
   const task = await one(client,
     `INSERT INTO tasks (tenant_id, warehouse_id, tipo, pallet_id, from_dock_id, to_location_id, prioridad, origen_tipo)
      VALUES ($1,$2,'PUTAWAY',$3,$4,$5,3,'RECEPCION') RETURNING id`,

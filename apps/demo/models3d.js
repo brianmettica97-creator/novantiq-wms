@@ -124,9 +124,14 @@ export const cloudTex = () => canvasTex(256, 128, (c, w, h) => {
 });
 
 // ---------- Geometrías ----------
-export function palletGeometry() {
+export function palletGeometry(lite = false) {
   const parts = [];
   const box = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); parts.push(g); };
+  if (lite) { // 4 piezas en vez de 15 (celulares): misma silueta, 4 veces menos triángulos
+    box(PALLET_W, 0.03, PALLET_D, 0, 0.129, 0);
+    for (const x of [-0.55, 0, 0.55]) box(0.1, 0.114, PALLET_D, x, 0.057, 0);
+    return mergeGeometries(parts);
+  }
   // Las horquillas entran por el lado de 1,0 m (eje z), entre los largueros.
   for (const z of [-0.45, 0, 0.45]) box(PALLET_W, 0.022, 0.1, 0, 0.011, z);
   for (const x of [-0.55, 0, 0.55]) box(0.1, 0.1, PALLET_D, x, 0.072, 0);
@@ -181,6 +186,9 @@ export function forklift(color) {
   }
   const spot = new THREE.Mesh(new THREE.CircleGeometry(0.35, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 0.8, 3), transparent: true, opacity: 0.7, depthWrite: false }));
   spot.rotation.x = -Math.PI / 2; spot.position.set(3.2, 0.02, 0); g.add(spot);
+  // ~45 piezas → ~12 mallas: el cuerpo, el mástil y las horquillas se unen por separado porque se mueven
+  for (const sub of [reach, inner, carriage]) sub.userData.dynamic = true;
+  mergeStatic(g); mergeStatic(reach); mergeStatic(inner); mergeStatic(carriage);
   return { group: g, reach, inner, carriage, beacon, beaconMat, paint };
 }
 
@@ -229,4 +237,38 @@ export function trees(positions, seed = 3) {
   round.forEach(([x, z], i) => { const k = 0.7 + r() * 0.6; ball.setMatrixAt(i, m.compose(p.set(x, 0, z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r() * 6), s.set(k, k, k))); });
   for (const im of [trunk, cone, ball]) { im.castShadow = true; im.receiveShadow = true; g.add(im); }
   return g;
+}
+
+// ---------- Optimización: unir piezas fijas ----------
+// Cada pieza suelta es una llamada de dibujo; en un celular cientos de llamadas por cuadro traban la pantalla.
+// mergeStatic() hornea la posición de las mallas fijas de un grupo y las une en una malla por material equivalente.
+function matKey(m) {
+  return [m.type, m.color?.getHexString(), m.color && m.color.r > 1 ? m.color.r.toFixed(2) : '', m.map?.uuid, m.alphaMap?.uuid, m.roughness, m.metalness,
+    m.transparent, m.opacity, m.side, m.blending, m.depthWrite, m.toneMapped, m.flatShading].join('|');
+}
+export function mergeStatic(root, { skip = () => false } = {}) {
+  root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const groups = new Map(), victims = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || skip(o)) return;
+    // solo hijos directos del contenedor fijo (los subgrupos animados se unen por separado)
+    let p = o.parent; while (p && p !== root) { if (p.userData.dynamic) return; p = p.parent; }
+    const k = matKey(o.material);
+    if (!groups.has(k)) groups.set(k, { mat: o.material, geos: [], cast: false, recv: false, ud: o.userData });
+    const g = groups.get(k);
+    const geo = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone());
+    for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+    if (!geo.attributes.uv) geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
+    geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld));
+    g.geos.push(geo); g.cast ||= o.castShadow; g.recv ||= o.receiveShadow;
+    victims.push(o);
+  });
+  for (const o of victims) o.parent.remove(o);
+  for (const g of groups.values()) {
+    const m = new THREE.Mesh(mergeGeometries(g.geos), g.mat);
+    m.castShadow = g.cast; m.receiveShadow = g.recv; m.userData = { ...g.ud };
+    root.add(m);
+  }
+  return groups.size;
 }

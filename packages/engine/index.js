@@ -6,3 +6,4 @@ export * from './simulation.js';
 export * from './renderer.js';
 export * from './adapter.js';
 export * from './ops.js';
+export * from './capacity.js';

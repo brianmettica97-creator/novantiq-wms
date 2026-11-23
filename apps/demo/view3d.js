@@ -12,7 +12,8 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { L, rackY, aisleY } from '../../packages/engine/layout.js';
-import { locColor, PALETTE } from '../../packages/engine/renderer.js';
+import { locColor, PALETTE, loadColor } from '../../packages/engine/renderer.js';
+import { beamUse, weightOf, CAP } from '../../packages/engine/capacity.js';
 import { zoneOf } from '../../packages/engine/slotting.js';
 import {
   LEVEL_H, RACK_H, TRAVEL_FORK_H, slotBaseY, slotCenter, handleState, forkHeight, reachAmount,
@@ -29,6 +30,20 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 // Tonos de cartón por SKU (modo realista)
 const KRAFT = ['#c79f6a', '#b88d58', '#d6b585', '#e6dfd2', '#a87a4a', '#cdab78', '#efe9df', '#bf9660'];
+const COLORS = new Map();
+/** THREE.Color cacheado por código y factor de brillo. */
+function col(hex, k = 1) {
+  const key = k === 1 ? hex : hex + '*' + k;
+  let c = COLORS.get(key);
+  if (!c) { c = new THREE.Color(hex).multiplyScalar(k); COLORS.set(key, c); }
+  return c;
+}
+/** Sube a la placa de video solo el tramo [a, b] de un atributo instanciado. */
+function markRange(attr, a, b) {
+  if (b < a) return;
+  attr.addUpdateRange(a * attr.itemSize, (b - a + 1) * attr.itemSize);
+  attr.needsUpdate = true;
+}
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 export function createView3D(container, view, { quality = defaultQuality(), brand } = {}) {
@@ -39,6 +54,7 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
   const canvas = renderer.domElement;
   canvas.className = 'map3d';
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); view.onContextLost?.(); });
   container.prepend(canvas);
 
   const scene = new THREE.Scene();
@@ -89,7 +105,8 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
 
   // ---------- Pallets ----------
   const EXTRA = 16;
-  const palletMesh = new THREE.InstancedMesh(palletGeometry(), new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.85 }), nLocs + EXTRA);
+  const palletGeoFull = palletGeometry(), palletGeoLite = palletGeometry(true);
+  const palletMesh = new THREE.InstancedMesh(palletGeoFull, new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.85 }), nLocs + EXTRA);
   const loadMat = new THREE.MeshStandardMaterial({ map: cartonTex(), roughness: 0.6, metalness: 0.0 });
   const loadMesh = new THREE.InstancedMesh(loadGeometry(), loadMat, nLocs + EXTRA);
   loadMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((nLocs + EXTRA) * 3), 3);
@@ -167,17 +184,20 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
   }
 
   // ---------- Actualización por cuadro ----------
-  let lastZones = 0, lastW = 0, lastH = 0;
+  let lastZones = 0, lastW = 0, lastH = 0, viewSig = '';
+  const slotSig = new Float64Array(nLocs).fill(NaN);
   const kraftOf = (sku) => (sku.cat === 'Perfumería' || sku.cat === 'Lácteos UAT' ? KRAFT[(sku.id % 2) ? 3 : 6] : KRAFT[sku.id % KRAFT.length]);
-  function indicatorColor(st, p) {
-    return view.mode === 'ocupacion' ? PALETTE.occupied : locColor(st, { palletId: p.id, reserved: false }, view.mode);
+  function indicatorColor(st, p, loc = null) {
+    if (view.mode === 'ocupacion') return PALETTE.occupied;
+    if (view.mode === 'carga') return loc ? loadColor(beamUse(st, loc)) : loadColor(weightOf(st, p) / CAP.posKg); // en horquillas: peso del pallet
+    return locColor(st, { palletId: p.id, reserved: false }, view.mode);
   }
-  function setPallet(i, x, y, z, rotY, pallet, sku, st) {
+  function setPallet(i, x, y, z, rotY, pallet, sku, st, loc = null) {
     tmpQ.setFromAxisAngle(UP, rotY);
     palletMesh.setMatrixAt(i, tmpM.compose(tmpP.set(x, y, z), tmpQ, tmpS.set(1, 1, 1)));
     tmpM.multiply(LOAD_UP).multiply(tmpS2.makeScale(1, loadHeight(pallet, sku), 1)).multiply(LOAD_DOWN);
     loadMesh.setMatrixAt(i, tmpM);
-    loadMesh.setColorAt(i, tmpC.set(view.look === 'real' ? kraftOf(sku) : indicatorColor(st, pallet)));
+    loadMesh.setColorAt(i, col(view.look === 'real' ? kraftOf(sku) : indicatorColor(st, pallet, loc)));
   }
 
   function update(st, now) {
@@ -195,27 +215,35 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
         const z = st.thrA != null ? zoneOf(st, loc) : 'C';
         const c = slotCenter(loc);
         zoneMesh.setMatrixAt(k, view.showZones && z !== 'C' ? tmpM.makeTranslation(c.x, 0.004, c.z) : HIDDEN);
-        zoneMesh.setColorAt(k, tmpC.set(z === 'A' ? '#22c55e' : '#f59e0b').multiplyScalar(z === 'A' ? 1 : 0.55));
+        zoneMesh.setColorAt(k, z === 'A' ? col('#22c55e') : col('#f59e0b', 0.55));
         k++;
       }
       zoneMesh.instanceMatrix.needsUpdate = true; zoneMesh.instanceColor.needsUpdate = true;
     }
 
+    const vsig = `${view.look}|${view.mode}|${view.level}`;
+    const full = vsig !== viewSig; viewSig = vsig;
+    let lo = Infinity, hi = -1;
     for (const loc of st.locations) {
       const i = loc.id;
       const shown = lf == null || loc.level === lf;
       const p = shown ? vis.slots.get(loc.id) : null;
+      // firma de lo que se ve en la ubicación: si no cambió, no se toca
+      let sig = p ? p.id * 8192 + p.qty * 4 + (p.status === 'CUARENTENA' ? 2 : 0) + p.exp * 1e-4 : shown ? (loc.reserved ? -2 : -3) : -4;
+      if (p && view.mode === 'carga') sig += Math.round(beamUse(st, loc) * 40) * 1e-7; // en modo carga influye el resto de la viga
+      if (!full && slotSig[i] === sig) continue;
+      slotSig[i] = sig; if (i < lo) lo = i; if (i > hi) hi = i;
       const c = slotCenter(loc);
       const y = slotBaseY(loc.level);
       if (p) {
         const sku = st.skuMap.get(p.skuId);
-        setPallet(i, c.x, y, c.z, 0, p, sku, st);
+        setPallet(i, c.x, y, c.z, 0, p, sku, st, loc);
         ghostMesh.setMatrixAt(i, HIDDEN);
         if (real) {
           const face = loc.side === 0 ? 1 : -1; // el frente del pallet mira al pasillo
           tmpQ.setFromAxisAngle(UP, loc.side === 0 ? 0 : Math.PI);
           tagMesh.setMatrixAt(i, tmpM.compose(tmpP.set(c.x - 0.3, y + PALLET_H + 0.42, c.z + face * (PALLET_D / 2 - 0.015)), tmpQ, tmpS.set(1, 1, 1)));
-          tagMesh.setColorAt(i, tmpC.set(indicatorColor(st, p)).multiplyScalar(1.15));
+          tagMesh.setColorAt(i, col(indicatorColor(st, p, loc), 1.15));
         } else tagMesh.setMatrixAt(i, HIDDEN);
       } else {
         palletMesh.setMatrixAt(i, HIDDEN); loadMesh.setMatrixAt(i, HIDDEN); tagMesh.setMatrixAt(i, HIDDEN);
@@ -270,8 +298,11 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
       else o.target.visible = false;
     });
     for (let k = clarkObjs.length; k < EXTRA; k++) { palletMesh.setMatrixAt(nLocs + k, HIDDEN); loadMesh.setMatrixAt(nLocs + k, HIDDEN); }
-    for (const m of [palletMesh, loadMesh, ghostMesh, tagMesh]) m.instanceMatrix.needsUpdate = true;
-    loadMesh.instanceColor.needsUpdate = true; tagMesh.instanceColor.needsUpdate = true;
+    // ubicaciones que cambiaron + los pallets que van en las horquillas (siempre se mueven)
+    for (const m of [palletMesh, loadMesh, ghostMesh, tagMesh]) markRange(m.instanceMatrix, lo, hi);
+    markRange(loadMesh.instanceColor, lo, hi); markRange(tagMesh.instanceColor, lo, hi);
+    for (const m of [palletMesh, loadMesh]) markRange(m.instanceMatrix, nLocs, nLocs + EXTRA - 1);
+    markRange(loadMesh.instanceColor, nLocs, nLocs + EXTRA - 1);
 
     placeOutline(hoverBox, view.hover && view.hover !== view.selected ? view.hover : null);
     placeOutline(selBox, view.selected && view.selected !== search.loc ? view.selected : null, 0.14);
@@ -300,6 +331,7 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
     if (pipeline) pipeline.dispose();
     qualityName = q;
     pipeline = createPipeline(renderer, scene, camera, env, q);
+    palletMesh.geometry = q === 'baja' ? palletGeoLite : palletGeoFull;
     renderer.setSize(lastW || 1, lastH || 1, false);
     pipeline.setSize(lastW || 1, lastH || 1);
     scene.traverse((o) => { if (o.material && o.material.needsUpdate !== undefined && o.isMesh) o.material.needsUpdate = true; });
@@ -311,6 +343,7 @@ export function createView3D(container, view, { quality = defaultQuality(), bran
   const api = {
     canvas, camera, controls,
     get quality() { return qualityName; },
+    get stats() { return { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }; },
     setQuality,
     resize(w, h) {
       if (w === lastW && h === lastH) return;

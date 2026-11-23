@@ -10,7 +10,7 @@ const result = await build({
   entryPoints: [join(root, 'apps/demo/app.js')],
   bundle: true,
   format: 'iife',
-  minify: true,
+  minify: process.env.NOMINIFY ? false : true,
   target: ['es2020'],
   write: false,
   legalComments: 'eof',

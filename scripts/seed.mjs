@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateMockData } from '../packages/engine/mockdata.js';
 import { L } from '../packages/engine/layout.js';
+import { CAP } from '../packages/engine/capacity.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? Number(process.argv[i + 1]) : d; };
@@ -41,6 +42,9 @@ ins('locations', data.locations.map((l, i) => ({
   pasillo: l.code[0], rack: l.rack, columna: l.col + 1, nivel: l.level,
   x: +l.x.toFixed(2), y: +l.access.y.toFixed(2), z: l.level * 1.6,
   tipo: 'RACK_SELECTIVO', distancia_a_muelle: l.dist, slot_score: l.score, pick_sequence: l.pickSeq,
+  peso_max_kg: l.level === 0 ? CAP.floorKg : CAP.posKg,
+  viga_codigo: `${l.code[0]}-${String(l.rack).padStart(2, '0')}-B${Math.floor(l.col / L.posPerBay) + 1}-${l.level}`, viga_max_kg: CAP.beamKg,
+  modulo_codigo: `${l.code[0]}-${String(l.rack).padStart(2, '0')}-B${Math.floor(l.col / L.posPerBay) + 1}`, modulo_max_kg: CAP.bayKg,
 })));
 
 const clientIds = {};
@@ -50,7 +54,7 @@ ins('clients', Object.entries(clientIds).map(([nombre, id]) => ({ id, tenant_id:
 const skuIds = new Map(data.skus.map((s) => [s.id, randomUUID()]));
 ins('skus', data.skus.map((s) => ({
   id: skuIds.get(s.id), tenant_id: TENANT, client_id: clientIds[s.client], codigo: s.code, descripcion: s.desc, ean: s.ean,
-  cajas_por_pallet: s.casesPerPallet, regla_rotacion: 'FEFO', clase_abc: s.abc,
+  cajas_por_pallet: s.casesPerPallet, peso_kg: s.kgCase, regla_rotacion: 'FEFO', clase_abc: s.abc,
 })));
 
 const today = new Date();

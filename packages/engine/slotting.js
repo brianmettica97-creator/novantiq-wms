@@ -1,6 +1,8 @@
 // Motor de slotting: zonas A/B/C por cercanía al muelle, putaway inteligente,
 // sugerencias de reubicación y el "índice de recorrido" que mide el ahorro.
 
+import { CAP, canPlace, weightOf } from './capacity.js';
+
 export const WORK_DAYS_PER_MONTH = 26;
 
 function skuStockCounts(st) {
@@ -47,12 +49,18 @@ function freeLocations(st) {
   return st.locations.filter((l) => l.palletId == null && !l.reserved);
 }
 
-// ¿Dónde guardo un pallet que acaba de llegar?
-export function choosePutawayLocation(st, sku, smart) {
-  const free = freeLocations(st);
+// ¿Dónde guardo un pallet que acaba de llegar? Solo donde el rack aguanta su peso (posición, viga y módulo).
+export function choosePutawayLocation(st, sku, smart, kg = 0) {
+  const free = freeLocations(st).filter((l) => canPlace(st, l, kg));
   if (!free.length) return null;
   if (!smart) return st.rng.pick(free); // "donde haya lugar" (lo que pasa hoy sin WMS)
-  free.sort((a, b) => a.score - b.score);
+  // Pesados abajo: un pallet de más de CAP.heavyKg evita los niveles altos si hay lugar abajo (seguridad).
+  const key = (l) => l.score + (kg > CAP.heavyKg && l.level >= 2 ? 1000 : 0);
+  free.sort((a, b) => key(a) - key(b));
+  if (kg > CAP.heavyKg && free[0].level < 2) {
+    const want = sku.abc, minScore = want === 'A' ? -Infinity : want === 'B' ? st.thrA : st.thrB;
+    return free.find((l) => l.level < 2 && l.score > minScore) || free[0];
+  }
   const want = sku.abc;
   if (want === 'A') return free[0];
   const minScore = want === 'B' ? st.thrA : st.thrB;
@@ -80,11 +88,14 @@ export function computeSuggestions(st, max = 40) {
 
   const out = [];
   let ia = 0;
+  const used = new Set();
+  // primera ubicación libre (de las más cercanas) donde el rack aguanta el peso del pallet
+  const fitIn = (list, p) => list.find((l) => !used.has(l.id) && canPlace(st, l, weightOf(st, p)));
   for (const p of misplacedA) {
     if (out.length >= max) break;
-    const to = freeA[ia];
-    if (!to) break;
-    ia++;
+    const to = fitIn(freeA, p);
+    if (!to) continue;
+    used.add(to.id); ia++;
     const from = st.locations[p.locId];
     out.push({
       kind: 'A_CERCA', palletId: p.id, fromId: from.id, toId: to.id,
@@ -96,8 +107,9 @@ export function computeSuggestions(st, max = 40) {
   const needSpace = misplacedA.length > ia;
   for (const p of needSpace ? cInA : []) {
     if (out.length >= max) break;
-    const to = freeFar[ic++];
-    if (!to) break;
+    const to = fitIn(freeFar, p);
+    if (!to) continue;
+    used.add(to.id); ic++;
     const from = st.locations[p.locId];
     out.push({ kind: 'C_LIBERA', palletId: p.id, fromId: from.id, toId: to.id, savings: 0 });
   }

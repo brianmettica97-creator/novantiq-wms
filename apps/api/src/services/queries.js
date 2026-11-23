@@ -19,7 +19,8 @@ export const SQL = {
     ORDER BY l.pasillo, l.rack, l.columna, l.nivel`,
 
   // ---------- Putaway: mejor ubicación libre según clase ABC ----------
-  // $1 warehouse, $2 clase ('A'|'B'|'C'), $3 umbral A, $4 umbral B
+  // $1 warehouse, $2 clase ('A'|'B'|'C'), $3 umbral A, $4 umbral B, $5 peso del pallet (kg)
+  // Solo ubicaciones donde el rack aguanta el peso; los pallets pesados (> 800 kg) prefieren los niveles 0 y 1.
   ubicacionPutaway: `
     SELECT l.id, l.codigo, l.slot_score
     FROM locations l
@@ -29,7 +30,8 @@ export const SQL = {
       AND CASE $2::text WHEN 'A' THEN true
                         WHEN 'B' THEN l.slot_score > $3
                         ELSE l.slot_score > $4 END
-    ORDER BY l.slot_score
+      AND cabe_en_ubicacion(l.id, $5)
+    ORDER BY l.slot_score + CASE WHEN $5 > 800 AND l.nivel >= 2 THEN 1000 ELSE 0 END
     LIMIT 1
     FOR UPDATE SKIP LOCKED`,
 
@@ -126,7 +128,7 @@ export const SQL = {
     SELECT m.pallet_id, m.sku_id, m.from_id, f.to_id,
            round((m.slot_score - f.slot_score) * 2 * m.ppd_pallet * 26, 1) AS ahorro_metros_mes
     FROM mal m JOIN libres f ON f.rn = m.rn
-    WHERE m.rn <= $3
+    WHERE m.rn <= $3 AND cabe_en_ubicacion(f.to_id, peso_pallet(m.pallet_id), m.pallet_id)
     ORDER BY ahorro_metros_mes DESC`,
 
   // ---------- KPIs ----------

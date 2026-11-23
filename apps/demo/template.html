@@ -133,7 +133,7 @@ body.presenting header,body.presenting aside,body.presenting .toolbar,body.prese
 body.presenting main{display:block;padding:0}
 body.presenting .mapcard{position:fixed;inset:0;border:0;border-radius:0;height:auto;z-index:15}
 body.presenting .rcard{right:auto;left:50%;top:auto;bottom:6%;transform:translateX(-50%);width:min(420px,88%)}
-@media (max-width:640px){.search input{width:150px}.kpiov{grid-template-columns:1fr 1fr}.rcard{right:12px;left:12px;width:auto;top:auto;bottom:12px}}
+@media (max-width:640px){.toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:8px 10px}.toolbar::-webkit-scrollbar{display:none}.toolbar>*{flex:none}.legend{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;scrollbar-width:none}.mapcard{height:82vh!important}.hint3d{display:none}.search input{width:150px}.kpiov{grid-template-columns:1fr 1fr}.rcard{right:12px;left:12px;width:auto;top:auto;bottom:12px}}
 .touch{display:none}@media (pointer:coarse){.touch{display:inline}.mouse{display:none}}
 .sec h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .slot .big{display:flex;align-items:baseline;gap:10px}

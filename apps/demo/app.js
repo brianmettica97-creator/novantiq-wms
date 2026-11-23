@@ -5,18 +5,22 @@ import { zoneOf } from '../../packages/engine/slotting.js';
 import { createView3D } from './view3d.js';
 import { createTour } from './tour.js';
 import { routePath, pathLength, AISLE_LETTERS } from '../../packages/engine/layout.js';
+import { CAP, rackLoad, weightOf, capacityReport } from '../../packages/engine/capacity.js';
 import {
   createOps, stepOps, stockAccuracy, clientReport, occupancyProjection, palletHistory, simulateScan, submitChecklist,
   unblock, reportProblem, authorizeFefo, shiftSummary, checkPin, money, TARIFAS, CHECKLIST, PROBLEMAS, PIN_DEMO,
 } from '../../packages/engine/ops.js';
 
 const $ = (id) => document.getElementById(id);
-const fmt = (n, d = 0) => n.toLocaleString('es-AR', { maximumFractionDigits: d, minimumFractionDigits: d });
+// Formateadores reutilizables: toLocaleString crea uno nuevo en cada llamada y en el celular eso traba la pantalla.
+const NF = [0, 1, 2].map((d) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: d, minimumFractionDigits: d }));
+const fmt = (n, d = 0) => NF[d].format(n);
 
 let seed = 2026;
 let data, st, ops;
 const PALLETS = 1500; // ~78 % de ocupación sobre 1.920 posiciones
 const view = createView();
+view.onContextLost = () => { setTimeout(() => { setDim('2d'); toast('El 3D se quedó sin memoria en este equipo: seguimos en el mapa 2D'); }, 0); };
 let speed = 10, running = true, lastFrame = performance.now(), lastUi = 0;
 
 function boot() {
@@ -106,7 +110,7 @@ function advance(dt) {
   if (tour.running) tour.tick(dt, clock); else if (document.body.classList.contains('presenting')) endTour();
   if (dim === '3d' && v3) v3.render(st, clock);
   else drawMap(ctx, st, view, W, H, clock, canvas.width / (W || 1));
-  if (clock - lastUi > 250 || clock < lastUi) { updateUi(false); lastUi = clock; }
+  if (clock - lastUi > UI_EVERY || clock < lastUi) { updateUi(false); lastUi = clock; }
 }
 function frame(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
@@ -199,8 +203,9 @@ function showDetail(loc) {
   if (p) rows.push(
     ['Pallet (LPN)', `<b>${p.lpn}</b>`], ['Producto', sku.desc], ['SKU · cliente', `${sku.code} · ${sku.client}`],
     ['Rotación', `<span class="pill" style="background:${PALETTE[sku.abc]}22;color:${PALETTE[sku.abc]}">${sku.abc}</span> ${fmt(sku.ppd, 1)} picks/día`],
-    ['Lote · vencimiento', `${p.lot} · ${p.exp} días`], ['Cajas', p.qty], ['Estado', `<span class="pill" style="background:${PALETTE[p.status]}22;color:${PALETTE[p.status]}">${p.status}</span>`],
+    ['Lote · vencimiento', `${p.lot} · ${p.exp} días`], ['Cajas · peso', `${p.qty} · <b>${fmt(weightOf(st, p))} kg</b>`], ['Estado', `<span class="pill" style="background:${PALETTE[p.status]}22;color:${PALETTE[p.status]}">${p.status}</span>`],
   );
+  rows.push(...loadRows(loc));
   let warn = '';
   if (p && sku.abc === 'A' && z !== 'A' && p.status !== 'CUARENTENA') warn = `<p style="margin-top:10px;font-size:12px;color:#fcd34d">⚠ Producto de alta rotación lejos del muelle. El slotting inteligente lo va a reubicar.</p>`;
   if (p && sku.abc === 'C' && z === 'A') warn = `<p style="margin-top:10px;font-size:12px;color:#fca5a5">⚠ Producto de baja rotación ocupando una posición premium.</p>`;
@@ -210,6 +215,15 @@ function showDetail(loc) {
   $('dx').onclick = () => { view.selected = null; $('detail').style.display = 'none'; };
 }
 
+function loadBar(v, cap) {
+  const u = v / cap, c = u < 0.8 ? '#22c55e' : u < 0.95 ? '#f59e0b' : '#ef4444';
+  return `<span style="display:inline-flex;align-items:center;gap:6px">${fmt(v)} / ${fmt(cap)} kg <i style="display:inline-block;width:46px;height:6px;border-radius:3px;background:#1e293b;overflow:hidden"><i style="display:block;height:100%;width:${Math.min(100, u * 100).toFixed(0)}%;background:${c}"></i></i></span>`;
+}
+function loadRows(loc) {
+  const r = rackLoad(st, loc);
+  if (loc.level === 0) return [['Capacidad (piso)', `hasta ${fmt(CAP.floorKg)} kg por pallet`]];
+  return [['Carga de la viga', loadBar(r.beam, r.beamCap)], ['Carga del módulo', loadBar(r.module, r.moduleCap)]];
+}
 function whenTxt(m) { return m.t == null ? `hace ${m.diasAtras} d` : fmtClock(m.t); }
 function historyHtml(loc, p) {
   const last = ops.lastCount.get(loc.id);
@@ -289,7 +303,7 @@ function renderTablet(force) {
         <div><small>Pallet</small><b>${p ? p.lpn : '-'}</b></div>
         <div><small>Producto</small><b style="font-size:14px">${sku ? sku.desc : '-'}</b></div>
         <div><small>Lote · vence</small><b>${p ? p.lot + ' · ' + p.exp + 'd' : '-'}</b></div>
-        <div><small>Cajas</small><b>${p ? p.qty : '-'}</b></div>
+        <div><small>Cajas · peso</small><b>${p ? p.qty + ' · ' + fmt(weightOf(st, p)) + ' kg' : '-'}</b></div>
       </div>
       <div class="steps">${steps.map((x, i) => `<span class="${i === stepIdx ? 'on' : i < stepIdx ? 'done' : ''}">${x}</span>`).join('')}</div>
       ${m ? `<div class="msg ${m.ok ? 'g' : 'r'}">${m.titulo}<small>${m.texto}</small></div>` : ''}
@@ -360,6 +374,7 @@ function renderMg() {
       <div class="note">Inventario cíclico: un operario cuenta ~30 ubicaciones por hora, primero las de productos A, sin cerrar el depósito.
       Hoy: <b>${ops.counted}</b> contadas · <b>${ops.countedWithDiff}</b> con diferencia (ajustadas).</div>
       <div class="note">Ocupación: ${projTxt}</div>
+      ${(() => { const c = capacityReport(st); return `<div class="note">Racks: <b class="${c.beamsOver + c.modulesOver ? 'ko-c' : 'ok-c'}">${c.beamsOver + c.modulesOver ? c.beamsOver + ' vigas excedidas' : 'ninguna viga ni módulo excedido'}</b> · ${c.beamsHigh} de ${c.beams} vigas al 90 % o más. Cada pallet se guarda solo donde la posición (${fmt(CAP.posKg)} kg), el par de vigas (${fmt(CAP.beamKg)} kg) y el módulo (${fmt(CAP.bayKg)} kg) lo aguantan.</div>`; })()}
       <div style="margin-top:8px">${ops.adjustments.length ? '<div class="note" style="font-weight:700">Últimos ajustes</div>' : ''}${list.map((x) => `<div class="li"><span><b>${x.code}</b> ${x.texto}</span><span class="${x.ok ? 'ok-c' : 'ko-c'}">${fmtClock(x.t)}</span></div>`).join('') || '<div class="note">Todavía no se contó nada.</div>'}</div>`;
   } else if (mgTab === 'cli') {
     const rows = clientReport(ops, st);
@@ -395,7 +410,17 @@ $('sumCopy').onclick = async () => {
 };
 
 // ---------- Panel ----------
+const TOUCH = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+const UI_EVERY = TOUCH ? 600 : 250; // ms entre actualizaciones del panel
+function onScreen(el) { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight && r.width > 0; }
 function updateUi(force) {
+  // En el celular el panel queda debajo del mapa: si no se ve, no se redibuja (solo el reloj y la tablet)
+  if (!force && !onScreen(document.querySelector('aside'))) {
+    $('clock').textContent = fmtClock(st.t);
+    if (tabletClark) renderTablet();
+    if ($('kpiov').style.display === 'grid') renderKpiOverlay();
+    return;
+  }
   const k = getKpis(st);
   $('clock').textContent = fmtClock(st.t);
   $('kOcc').textContent = fmt(k.occupancy * 100, 1) + '%';
@@ -534,7 +559,7 @@ function renderSearchCard() {
     <div class="where">Pasillo ${AISLE_LETTERS[loc.aisle]} · posición ${loc.col + 1} · nivel ${loc.level}</div>
     <div class="row"><span>Producto</span><span>${sku.desc}</span></div>
     <div class="row"><span>Pallet · lote</span><span>${p.lpn} · ${p.lot}</span></div>
-    <div class="row"><span>Vence en</span><span>${p.exp} días · ${p.qty} cajas</span></div>
+    <div class="row"><span>Vence en</span><span>${p.exp} días · ${p.qty} cajas · ${fmt(weightOf(st, p))} kg</span></div>
     ${list.length > 1 ? `<div class="row"><span>Stock del producto</span><span>${list.length} pallets · este sale primero (FEFO)</span></div>` : ''}
     ${best ? `<div class="eta">🚜 <b>${best.c.code}</b> (${best.c.operator}) está a <b>${fmt(best.d)} m</b> · llega en ~${eta < 90 ? eta + ' s' : fmt(eta / 60, 1) + ' min'}</div>` : ''}`;
   $('rcard').style.display = 'block';
