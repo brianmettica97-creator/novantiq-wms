@@ -1,0 +1,21 @@
+{
+  "name": "novantiq-wms",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "db:schema": "psql \"$DATABASE_URL\" -f db/schema.sql",
+    "db:seed": "node scripts/seed.mjs && psql \"$DATABASE_URL\" -f db/seed.sql",
+    "demo:build": "node scripts/build-demo.mjs",
+    "dev:api": "npm run dev -w @novantiq-wms/api",
+    "dev:web": "npm run dev -w @novantiq-wms/web",
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.0",
+    "three": "0.186.1"
+  }
+}

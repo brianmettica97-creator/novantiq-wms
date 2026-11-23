@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOVANTIQ WMS · Demo en vivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#070b14; --panel:#0d1424; --panel2:#111a2e; --line:#1e2a40; --text:#e2e8f0; --muted:#8193ad;
+  --green:#22c55e; --amber:#f59e0b; --red:#ef4444; --blue:#38bdf8; --violet:#a78bfa;
+  --r:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh;min-height:640px}
+header{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0b1220,#070b14);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.mark{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#22c55e,#0ea5e9);display:grid;place-items:center;font-weight:800;color:#04110a;font-size:18px}
+.brand b{font-size:16px;letter-spacing:.06em}
+.brand small{display:block;color:var(--muted);font-size:12px;font-weight:500;letter-spacing:0}
+.live{display:flex;align-items:center;gap:7px;font-weight:700;font-size:12px;color:var(--green);background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);padding:5px 10px;border-radius:99px}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(34,197,94,.7);animation:ping 1.6s infinite}
+.live.paused{color:var(--amber);background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3)}
+.live.paused i{background:var(--amber);animation:none}
+@keyframes ping{70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+.clock{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;letter-spacing:.04em}
+.spacer{flex:1}
+.ctrl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-weight:600;font-size:13px}
+.btn:hover{border-color:#334663}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.seg button{background:none;border:0;padding:5px 10px;border-radius:7px;font-weight:600;font-size:12.5px;color:var(--muted)}
+.seg button.on{background:#1c2a45;color:var(--text)}
+.smart{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:6px 8px 6px 12px;font-weight:700;font-size:13px}
+.smart.on{border-color:rgba(34,197,94,.55);box-shadow:0 0 24px rgba(34,197,94,.18)}
+.switch{width:46px;height:26px;border-radius:99px;background:#26334d;border:0;position:relative;transition:.2s}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s}
+.smart.on .switch{background:var(--green)}
+.smart.on .switch::after{left:23px}
+main{display:grid;grid-template-columns:1fr 380px;gap:14px;padding:14px;min-height:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.mapcard{display:flex;flex-direction:column;min-height:0;position:relative;overflow:hidden}
+.toolbar{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.toolbar label{color:var(--muted);font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center}
+select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:12.5px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;padding:8px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line)}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+.canvaswrap{position:relative;flex:1;min-height:300px}
+canvas#map{position:absolute;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}
+canvas.map3d{position:absolute;inset:0;display:block;cursor:grab;touch-action:none}
+.is3d canvas#map,.is2d canvas.map3d,.is2d .only3d{display:none!important}
+.hint3d{position:absolute;left:14px;top:12px;font-size:11.5px;color:var(--muted);background:rgba(13,20,36,.8);border:1px solid var(--line);border-radius:8px;padding:5px 9px;pointer-events:none}
+.tip{position:absolute;pointer-events:none;background:rgba(13,20,36,.96);border:1px solid #2a3a58;border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.45;display:none;max-width:260px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.tip b{font-family:'JetBrains Mono',monospace}
+.detail{position:absolute;left:14px;bottom:14px;width:300px;background:rgba(13,20,36,.97);border:1px solid #2a3a58;border-radius:14px;padding:14px;display:none;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.detail h3{font-family:'JetBrains Mono',monospace;font-size:20px;margin-bottom:2px}
+.detail .row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #1e2a40;font-size:12.5px}
+.detail .row span:first-child{color:var(--muted)}
+.detail .x{position:absolute;top:8px;right:10px;background:none;border:0;color:var(--muted);font-size:18px}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px}
+.zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:6px}
+.zoom button{width:34px;height:34px;border-radius:9px;background:rgba(17,26,46,.9);border:1px solid var(--line);font-weight:700;font-size:16px}
+aside{display:flex;flex-direction:column;gap:12px;overflow-y:auto;min-height:0;padding-right:2px}
+aside::-webkit-scrollbar{width:6px}aside::-webkit-scrollbar-thumb{background:#1e2a40;border-radius:9px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kpi{padding:12px 14px}
+.kpi small{color:var(--muted);font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.kpi .v{font-size:26px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--muted);margin-top:2px}
+.bar{height:6px;border-radius:9px;background:#1a2540;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#38bdf8);border-radius:9px;transition:width .4s}
+.sec{padding:14px}
+.sec h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.slot .big{display:flex;align-items:baseline;gap:10px}
+.slot .big b{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
+.delta{font-weight:800;font-size:15px}
+.delta.good{color:var(--green)} .delta.flat{color:var(--muted)}
+canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
+.save{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+.save div{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.save small{color:var(--muted);font-size:11px}
+.save b{display:block;font-size:17px;margin-top:2px}
+.clk{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+.clk:hover,.clk.sel{background:var(--panel2);border-color:var(--line)}
+.clk .dot{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-weight:800;color:#0b1220;font-size:12px}
+.clk .t{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clk .r{text-align:right;font-size:12px;color:var(--muted)}
+.clk .r b{display:block;color:var(--text);font-size:14px}
+.alert{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:7px 0;border-bottom:1px dashed #1e2a40}
+.alert b{font-family:'JetBrains Mono',monospace;font-size:12px}
+.feed{max-height:220px;overflow:hidden;font-size:12px;line-height:1.45}
+.feed div{padding:6px 0;border-bottom:1px dashed #1a2438;color:#c5d1e3;animation:fade .5s}
+.feed time{font-family:'JetBrains Mono',monospace;color:var(--muted);margin-right:6px}
+.feed .smart{color:#86efac}
+@keyframes fade{from{opacity:0;transform:translateY(-4px)}to{opacity:1}}
+.modal{position:fixed;inset:0;background:rgba(3,6,12,.72);display:none;place-items:center;z-index:20;padding:20px}
+.modal.open{display:grid}
+.tablet{width:min(560px,96vw);background:#020617;border:10px solid #1f2937;border-radius:28px;padding:22px;box-shadow:0 30px 80px rgba(0,0,0,.6);position:relative}
+.tablet .top{display:flex;justify-content:space-between;color:var(--muted);font-weight:700;font-size:13px}
+.tablet .type{margin-top:18px;font-size:15px;font-weight:800;letter-spacing:.1em}
+.tablet .dest{font-family:'JetBrains Mono',monospace;font-size:clamp(46px,10vw,76px);font-weight:700;line-height:1;margin:8px 0 14px}
+.tablet .info{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tablet .info div{background:#0b1220;border:1px solid #1e293b;border-radius:12px;padding:10px 12px}
+.tablet .info small{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase}
+.tablet .info b{display:block;font-size:17px;margin-top:3px}
+.tablet .steps{display:flex;gap:8px;margin:16px 0}
+.tablet .steps span{flex:1;text-align:center;padding:8px 4px;border-radius:10px;background:#0b1220;border:1px solid #1e293b;font-size:12px;font-weight:700;color:var(--muted)}
+.tablet .steps span.on{background:rgba(34,197,94,.15);border-color:#22c55e;color:#86efac}
+.tablet .steps span.done{color:#64748b;text-decoration:line-through}
+.tablet .acts{display:grid;grid-template-columns:2fr 1fr;gap:10px}
+.tablet .acts button{border:0;border-radius:14px;padding:20px;font-size:20px;font-weight:800}
+.tablet .ok{background:#16a34a;color:#fff}.tablet .ko{background:#7f1d1d;color:#fecaca}
+.close{position:absolute;top:-16px;right:-16px;width:36px;height:36px;border-radius:50%;background:#1f2937;border:2px solid #334155;font-size:18px}
+.dataBox{width:min(720px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;position:relative}
+.dataBox pre{background:#050913;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:46vh;overflow:auto;font-size:11.5px;font-family:'JetBrains Mono',monospace;color:#9fb3cf;margin:12px 0}
+.toast{position:fixed;left:50%;top:76px;transform:translateX(-50%) translateY(-20px);background:#052e16;border:1px solid #22c55e;color:#bbf7d0;padding:12px 18px;border-radius:12px;font-weight:700;opacity:0;transition:.35s;z-index:30;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width:1100px){main{grid-template-columns:1fr}.app{height:auto}.mapcard{height:70vh}aside{overflow:visible}}
+@media (max-width:640px){header{gap:10px;padding:10px}.clock{font-size:18px}.detail{width:calc(100% - 28px)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><div class="mark">N</div><div><b>NOVANTIQ WMS</b><small id="whName">CD · Nave 2</small></div></div>
+    <div class="live" id="live"><i></i><span>EN VIVO</span></div>
+    <div class="clock" id="clock">08:00</div>
+    <div class="spacer"></div>
+    <div class="ctrl">
+      <button class="btn" id="play">⏸ Pausa</button>
+      <div class="seg" id="speed">
+        <button data-s="1">1x</button><button data-s="10" class="on">10x</button><button data-s="30">30x</button><button data-s="90">90x</button>
+      </div>
+      <div class="smart" id="smart"><span>Slotting inteligente</span><button class="switch" id="smartBtn" aria-label="Activar slotting inteligente"></button></div>
+      <button class="btn" id="dataBtn">Datos mock</button>
+      <button class="btn" id="reset">↺ Reiniciar</button>
+    </div>
+  </header>
+  <main>
+    <section class="card mapcard">
+      <div class="toolbar">
+        <div class="seg" id="dim"><button data-d="3d" class="on">3D</button><button data-d="2d">2D</button></div>
+        <div class="seg" id="modes"></div>
+        <label>Nivel <select id="level"><option value="all">Todos (0–3)</option><option value="0">0 · Piso</option><option value="1">1</option><option value="2">2</option><option value="3">3 · Alto</option></select></label>
+        <label><input type="checkbox" id="zones" checked> Zonas A/B</label>
+        <div class="spacer"></div>
+        <label id="mapInfo"></label>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="canvaswrap is3d" id="wrap">
+        <canvas id="map"></canvas>
+        <div class="hint3d only3d">Arrastrá para girar · clic derecho para desplazar · rueda para acercar</div>
+        <div class="tip" id="tip"></div>
+        <div class="zoom"><button id="zin" title="Acercar">+</button><button id="zout" title="Alejar">−</button><button id="zfit" title="Encuadrar">⤢</button><button id="zaisle" class="only3d" title="Vista desde un pasillo">⇶</button></div>
+        <div class="detail" id="detail"></div>
+      </div>
+    </section>
+    <aside>
+      <div class="kpis">
+        <div class="card kpi"><small>Ocupación</small><div class="v" id="kOcc">–</div><div class="s" id="kOccS"></div><div class="bar"><i id="kOccBar"></i></div></div>
+        <div class="card kpi"><small>Pallets en stock</small><div class="v" id="kStock">–</div><div class="s" id="kStockS"></div></div>
+        <div class="card kpi"><small>Movimientos / hora</small><div class="v" id="kPph">–</div><div class="s" id="kPphS"></div></div>
+        <div class="card kpi"><small>Recorrido por picking</small><div class="v" id="kPick">–</div><div class="s" id="kPickS"></div></div>
+      </div>
+      <div class="card sec slot">
+        <h4><span>Índice de recorrido · slotting</span><span id="sugg"></span></h4>
+        <div class="big"><b id="kIdx">–</b><span>m por picking</span><span class="delta flat" id="kDelta">0%</span></div>
+        <div class="s" style="color:var(--muted);font-size:12px">Línea roja: situación inicial (<span id="kBase"></span> m)</div>
+        <canvas id="spark"></canvas>
+        <div class="save"><div><small>Recorrido ahorrado / mes</small><b id="kSaveM">0 km</b></div><div><small>Horas de clark / mes</small><b id="kSaveH">0 h</b></div></div>
+      </div>
+      <div class="card sec"><h4><span>Clarks en operación</span><span>tocá uno → tablet</span></h4><div id="clarks"></div></div>
+      <div class="card sec"><h4><span>Alertas FEFO · vencen en &lt; 30 días</span><span id="expN"></span></h4><div id="alerts"></div></div>
+      <div class="card sec"><h4><span>Actividad en vivo</span></h4><div class="feed" id="feed"></div></div>
+    </aside>
+  </main>
+</div>
+
+<div class="modal" id="tabletModal"><div class="tablet" id="tablet"></div></div>
+<div class="modal" id="dataModal"><div class="dataBox">
+  <button class="close" id="dataClose">×</button>
+  <h3 style="font-size:18px">Generador de datos mock</h3>
+  <p style="color:var(--muted);margin-top:6px;font-size:13px" id="dataSummary"></p>
+  <pre id="dataPre"></pre>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copyJson">Copiar JSON completo</button><button class="btn" id="regen">Generar otro depósito</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/*__ENGINE__*/
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "NOVANTIQ WMS · Clark",
+  "short_name": "WMS Clark",
+  "start_url": "/clark",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#020617",
+  "theme_color": "#020617"
+}
