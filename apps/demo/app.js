@@ -3,18 +3,24 @@ import { createSim, stepSim, getKpis, setSmart, fmtClock } from '../../packages/
 import { createView, drawMap, hitTest, drawSparkline, MODES, PALETTE, toWorld, updateTransform } from '../../packages/engine/renderer.js';
 import { zoneOf } from '../../packages/engine/slotting.js';
 import { createView3D } from './view3d.js';
+import {
+  createOps, stepOps, stockAccuracy, clientReport, occupancyProjection, palletHistory, simulateScan, submitChecklist,
+  unblock, reportProblem, authorizeFefo, shiftSummary, checkPin, money, TARIFAS, CHECKLIST, PROBLEMAS, PIN_DEMO,
+} from '../../packages/engine/ops.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 0) => n.toLocaleString('es-AR', { maximumFractionDigits: d, minimumFractionDigits: d });
 
 let seed = 2026;
-let data, st;
+let data, st, ops;
 const view = createView();
 let speed = 10, running = true, lastFrame = performance.now(), lastUi = 0;
 
 function boot() {
   data = generateMockData({ seed, pallets: 300 });
   st = createSim(data, { clarks: 5, seed: seed + 1 });
+  ops = createOps(st, { seed });
+  sessions.clear(); closeTablet();
   $('whName').textContent = data.warehouse.name + ' · ' + data.locations.length + ' posiciones';
   view.selected = null; view.selectedClark = null;
   $('detail').style.display = 'none';
@@ -84,7 +90,7 @@ window.addEventListener('resize', resize);
 function frame(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
-  if (running) stepSim(st, dt * speed);
+  if (running) { stepSim(st, dt * speed); stepOps(ops, st); }
   if (dim === '3d' && v3) v3.render(st, now);
   else drawMap(ctx, st, view, W, H, now, canvas.width / (W || 1));
   if (now - lastUi > 250) { updateUi(false); lastUi = now; }
@@ -181,40 +187,83 @@ function showDetail(loc) {
   if (p && sku.abc === 'A' && z !== 'A' && p.status !== 'CUARENTENA') warn = `<p style="margin-top:10px;font-size:12px;color:#fcd34d">⚠ Producto de alta rotación lejos del muelle. El slotting inteligente lo va a reubicar.</p>`;
   if (p && sku.abc === 'C' && z === 'A') warn = `<p style="margin-top:10px;font-size:12px;color:#fca5a5">⚠ Producto de baja rotación ocupando una posición premium.</p>`;
   $('detail').innerHTML = `<button class="x" id="dx">×</button><small style="color:var(--muted)">UBICACIÓN</small><h3>${loc.code}</h3>` +
-    rows.map(([a, b]) => `<div class="row"><span>${a}</span><span>${b}</span></div>`).join('') + (p ? '' : `<p style="margin-top:10px;color:var(--muted)">${loc.reserved ? 'Reservada: hay un clark llevando un pallet.' : 'Ubicación libre.'}</p>`) + warn;
+    rows.map(([a, b]) => `<div class="row"><span>${a}</span><span>${b}</span></div>`).join('') + (p ? '' : `<p style="margin-top:10px;color:var(--muted)">${loc.reserved ? 'Reservada: hay un clark llevando un pallet.' : 'Ubicación libre.'}</p>`) + warn + historyHtml(loc, p);
   $('detail').style.display = 'block';
   $('dx').onclick = () => { view.selected = null; $('detail').style.display = 'none'; };
 }
 
+function whenTxt(m) { return m.t == null ? `hace ${m.diasAtras} d` : fmtClock(m.t); }
+function historyHtml(loc, p) {
+  const last = ops.lastCount.get(loc.id);
+  const counted = `<div class="row"><span>Último conteo</span><span>${last == null ? 'pendiente' : 'hoy ' + fmtClock(last)}</span></div>`;
+  if (!p) return counted;
+  const h = palletHistory(ops, p.id).slice(0, 6);
+  return counted + `<div class="hist"><small style="color:var(--muted);font-weight:700">HISTORIA DEL PALLET</small>` +
+    h.map((m) => `<div><time>${whenTxt(m)}</time>${m.texto}${m.quien !== '—' ? ` · <span style="color:var(--muted)">${m.quien}</span>` : ''}</div>`).join('') + '</div>';
+}
+
 // ---------- Tablet del clark ----------
+// Flujo del operario: PIN → checklist de seguridad → tareas. El lector se simula con botones.
 let tabletClark = null;
+const sessions = new Map(); // clarkId → { step, pin, checks, msg, problems }
 const TYPE_LABEL = { PICK: 'PICKING · DESPACHO', PUTAWAY: 'GUARDADO · PUTAWAY', REPOSICION: 'REUBICACIÓN · SLOTTING' };
 const TYPE_COLOR = { PICK: '#38bdf8', PUTAWAY: '#a78bfa', REPOSICION: '#22c55e' };
 function refName(ref) { return ref.kind === 'loc' ? st.locations[ref.id].code : 'MUELLE ' + st.docks[ref.id].code; }
 function taskText(c) {
+  if (c.blocked) return '⛔ Equipo bloqueado por checklist';
   if (!c.task) return 'Esperando tarea…';
   const t = c.task;
   const verb = c.phase === 'toFrom' ? 'Yendo a buscar' : c.phase === 'handle1' ? 'Tomando pallet en' : c.phase === 'toTo' ? 'Llevando a' : 'Dejando en';
   const where = c.phase === 'toFrom' || c.phase === 'handle1' ? refName(t.from) : refName(t.to);
   return `${t.type === 'PICK' ? 'Picking' : t.type === 'PUTAWAY' ? 'Putaway' : 'Reubicación'} · ${verb} ${where}`;
 }
+function session(c) {
+  if (!sessions.has(c.id)) sessions.set(c.id, { step: 'pin', pin: '', checks: {}, msg: null, problems: false });
+  return sessions.get(c.id);
+}
 function openTablet(c) {
   tabletClark = c; view.selectedClark = c;
   $('tabletModal').classList.add('open');
-  renderTablet();
+  renderTablet(true);
 }
-function renderTablet() {
+function buzz(ok) { try { navigator.vibrate?.(ok ? 60 : [120, 60, 120]); } catch {} }
+function renderTablet(force) {
   const c = tabletClark; if (!c) return;
-  const t = c.task;
+  const s = session(c);
+  if (!force && s.step !== 'task') return; // PIN y checklist solo cambian al tocar
   let body;
-  if (!t) body = `<div class="type" style="color:var(--muted)">SIN TAREA</div><div class="dest" style="font-size:40px">Esperando…</div>`;
-  else {
+  if (s.step === 'pin') {
+    body = `<div class="type" style="color:var(--muted)">INGRESO DEL OPERARIO</div>
+      <div style="font-size:22px;font-weight:800;margin-top:8px">${c.operator}, ingresá tu PIN</div>
+      <div class="pinbox">${[0, 1, 2, 3].map((i) => `<i class="${i < s.pin.length ? 'f' : ''}"></i>`).join('')}</div>
+      ${s.msg ? `<div class="msg r">${s.msg.titulo}</div>` : ''}
+      <div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-act="key" data-k="${n}">${n}</button>`).join('')}
+        <button data-act="key" data-k="del">⌫</button><button data-act="key" data-k="0">0</button><span></span></div>
+      <p class="demo" style="text-align:center">PIN de la demo: ${PIN_DEMO}</p>`;
+  } else if (s.step === 'check') {
+    const all = CHECKLIST.every((_, i) => s.checks[i]);
+    body = `<div class="type" style="color:#facc15">CHECKLIST PRE-USO · ${c.code}</div>
+      <div style="color:var(--muted);margin-top:6px">Revisá el equipo antes de empezar. Con cualquier falla queda bloqueado.</div>
+      ${CHECKLIST.map((item, i) => `<div class="chk"><span>${item}</span><span>
+        <button data-act="chk" data-i="${i}" data-v="ok" class="${s.checks[i] === 'ok' ? 'sel-ok' : ''}">OK</button>
+        <button data-act="chk" data-i="${i}" data-v="ko" class="${s.checks[i] === 'ko' ? 'sel-ko' : ''}">Falla</button></span></div>`).join('')}
+      <div class="acts" style="margin-top:14px;grid-template-columns:1fr"><button class="ok" data-act="chkSend" ${all ? '' : 'disabled style="opacity:.4"'}>Confirmar checklist</button></div>`;
+  } else if (c.blocked) {
+    body = `<div class="type" style="color:#f87171">⛔ EQUIPO BLOQUEADO</div>
+      <div class="dest" style="font-size:34px">No usar el ${c.code}</div>
+      <p style="color:#fecaca">El checklist marcó una falla. Se avisó al supervisor; el clark no recibe tareas hasta que lo revisen.</p>
+      <div class="acts" style="margin-top:14px;grid-template-columns:1fr"><button class="ok" data-act="unblock">Supervisor: equipo revisado, habilitar</button></div>`;
+  } else if (!c.task) {
+    body = `<div class="type" style="color:var(--muted)">SIN TAREA</div><div class="dest" style="font-size:40px">Esperando…</div>`;
+  } else {
+    const t = c.task;
     const p = st.palletMap.get(t.palletId) || c.carrying;
     const sku = p ? st.skuMap.get(p.skuId) : null;
     const goingFrom = c.phase === 'toFrom' || c.phase === 'handle1';
     const dest = goingFrom ? refName(t.from) : refName(t.to);
     const stepIdx = { toFrom: 0, handle1: 1, toTo: 2, handle2: 3 }[c.phase];
     const steps = ['Ir a origen', 'Escanear y tomar', 'Ir a destino', 'Escanear y dejar'];
+    const m = s.msg && s.msg.until > performance.now() ? s.msg : null;
     body = `<div class="type" style="color:${TYPE_COLOR[t.type]}">${TYPE_LABEL[t.type]}</div>
       <div style="color:var(--muted);font-weight:700;margin-top:6px">${goingFrom ? 'TOMÁ EL PALLET EN' : 'LLEVALO A'}</div>
       <div class="dest">${dest}</div>
@@ -222,17 +271,110 @@ function renderTablet() {
         <div><small>Pallet</small><b>${p ? p.lpn : '-'}</b></div>
         <div><small>Producto</small><b style="font-size:14px">${sku ? sku.desc : '-'}</b></div>
         <div><small>Lote · vence</small><b>${p ? p.lot + ' · ' + p.exp + 'd' : '-'}</b></div>
-        <div><small>Rotación</small><b style="color:${sku ? PALETTE[sku.abc] : '#fff'}">${sku ? 'Clase ' + sku.abc : '-'}</b></div>
+        <div><small>Cajas</small><b>${p ? p.qty : '-'}</b></div>
       </div>
-      <div class="steps">${steps.map((s, i) => `<span class="${i === stepIdx ? 'on' : i < stepIdx ? 'done' : ''}">${s}</span>`).join('')}</div>
-      <div class="acts"><button class="ok">✓ CONFIRMAR</button><button class="ko">⚠ PROBLEMA</button></div>`;
+      <div class="steps">${steps.map((x, i) => `<span class="${i === stepIdx ? 'on' : i < stepIdx ? 'done' : ''}">${x}</span>`).join('')}</div>
+      ${m ? `<div class="msg ${m.ok ? 'g' : 'r'}">${m.titulo}<small>${m.texto}</small></div>` : ''}
+      ${m && m.fefo ? `<div class="acts" style="grid-template-columns:1fr;margin-bottom:10px"><button class="ko" data-act="fefo" style="font-size:15px">Pedir autorización al supervisor</button></div>` : ''}
+      <div class="demo">Demo: simulá el lector de códigos</div>
+      <div class="acts3"><button class="ok" data-act="scan" data-v="ok">✓ Escanear correcto</button><button style="background:#334155;color:#fff" data-act="scan" data-v="ko">✗ Escanear otro</button></div>
+      <div class="acts" style="margin-top:10px;grid-template-columns:1fr"><button class="ko" data-act="prob">⚠ Reportar problema</button></div>
+      ${s.problems ? `<div class="pgrid">${Object.entries(PROBLEMAS).map(([k, v]) => `<button data-act="probSend" data-p="${k}">${v}</button>`).join('')}</div>` : ''}`;
   }
-  $('tablet').innerHTML = `<button class="close" id="tclose">×</button>
+  $('tablet').innerHTML = `<button class="close" data-act="close">×</button>
     <div class="top"><span>${c.code} · ${c.operator}</span><span>${fmtClock(st.t)} · ${c.tasksDone} tareas hoy</span></div>${body}`;
-  $('tclose').onclick = closeTablet;
 }
+// pointerdown en vez de click: la tablet se redibuja varias veces por segundo mientras hay tarea
+$('tablet').addEventListener('pointerdown', (e) => {
+  const b = e.target.closest('[data-act]'); if (!b || !tabletClark || b.disabled) return;
+  const c = tabletClark, s = session(c), act = b.dataset.act;
+  e.preventDefault();
+  if (act === 'close') return closeTablet();
+  if (act === 'key') {
+    s.msg = null;
+    if (b.dataset.k === 'del') s.pin = s.pin.slice(0, -1); else if (s.pin.length < 4) s.pin += b.dataset.k;
+    if (s.pin.length === 4) {
+      if (checkPin(s.pin)) { s.step = 'check'; buzz(true); } else { s.msg = { titulo: 'PIN incorrecto. Probá de nuevo.' }; buzz(false); }
+      s.pin = '';
+    }
+  } else if (act === 'chk') s.checks[b.dataset.i] = b.dataset.v;
+  else if (act === 'chkSend') {
+    const fallas = CHECKLIST.filter((_, i) => s.checks[i] === 'ko');
+    submitChecklist(ops, st, c, fallas);
+    s.step = 'task';
+    if (fallas.length) toast(`${c.code} bloqueado: se avisó al supervisor`);
+  } else if (act === 'unblock') { unblock(ops, st, c); toast(`${c.code} habilitado`); }
+  else if (act === 'scan') {
+    const r = simulateScan(ops, st, c, b.dataset.v === 'ok');
+    s.msg = { ...r, until: performance.now() + 7000 }; buzz(r.ok);
+  } else if (act === 'fefo') {
+    authorizeFefo(ops, st, c, s.msg.wrong);
+    s.msg = { ok: true, titulo: 'Autorizado por supervisor', texto: 'Queda registrado quién autorizó y por qué.', until: performance.now() + 5000 };
+  } else if (act === 'prob') s.problems = !s.problems;
+  else if (act === 'probSend') {
+    const pr = reportProblem(ops, st, c, b.dataset.p);
+    s.problems = false;
+    s.msg = { ok: true, titulo: 'Problema enviado al supervisor', texto: pr.texto, until: performance.now() + 5000 };
+  }
+  renderTablet(true);
+});
 function closeTablet() { tabletClark = null; view.selectedClark = null; $('tabletModal').classList.remove('open'); }
 $('tabletModal').addEventListener('click', (e) => { if (e.target.id === 'tabletModal') closeTablet(); });
+
+// ---------- Gestión: inventario, clientes, recepción, problemas ----------
+let mgTab = 'inv';
+$('mgTabs').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  mgTab = b.dataset.t;
+  [...$('mgTabs').children].forEach((x) => x.classList.toggle('on', x === b));
+  renderMg();
+};
+function renderMg() {
+  let html = '';
+  if (mgTab === 'inv') {
+    const acc = stockAccuracy(ops);
+    const proj = occupancyProjection(ops, st);
+    const projTxt = proj.estado === 'MIDIENDO' ? 'midiendo el ritmo de entradas y salidas…'
+      : proj.estado === 'ESTABLE' ? `estable: entra lo mismo que sale (${fmt(proj.occupied / proj.total * 100)} % ocupado)`
+        : `crece ${fmt(proj.perShift)} pallets por turno → 90 % en ~${Math.ceil(proj.turnosHasta90)} turnos`;
+    const list = (ops.adjustments.length ? ops.adjustments : ops.countLog).slice(0, 5);
+    html = `<div class="big2"><b class="${acc == null ? '' : acc >= 0.98 ? 'ok-c' : acc >= 0.95 ? 'wa-c' : 'ko-c'}">${acc == null ? '–' : fmt(acc * 100, 1) + ' %'}</b><span style="color:var(--muted)">exactitud de stock</span></div>
+      <div class="note">Inventario cíclico: un operario cuenta ~30 ubicaciones por hora, primero las de productos A, sin cerrar el depósito.
+      Hoy: <b>${ops.counted}</b> contadas · <b>${ops.countedWithDiff}</b> con diferencia (ajustadas).</div>
+      <div class="note">Ocupación: ${projTxt}</div>
+      <div style="margin-top:8px">${ops.adjustments.length ? '<div class="note" style="font-weight:700">Últimos ajustes</div>' : ''}${list.map((x) => `<div class="li"><span><b>${x.code}</b> ${x.texto}</span><span class="${x.ok ? 'ok-c' : 'ko-c'}">${fmtClock(x.t)}</span></div>`).join('') || '<div class="note">Todavía no se contó nada.</div>'}</div>`;
+  } else if (mgTab === 'cli') {
+    const rows = clientReport(ops, st);
+    html = `<table><tr><th>Cliente</th><th>Pallets</th><th>Vence &lt;30d</th><th>Hoy</th><th>Mes (est.)</th></tr>
+      ${rows.map((r) => `<tr><td>${r.name}</td><td>${r.pallets}</td><td class="${r.riesgo ? 'wa-c' : ''}">${money(r.riesgo)}</td><td>${money(r.hoy)}</td><td><b>${money(r.mes)}</b></td></tr>`).join('')}</table>
+      <div class="note">Tarifas de ejemplo: ${money(TARIFAS.almacenajePalletDia)} por pallet/día · ${money(TARIFAS.entradaPallet)} por entrada · ${money(TARIFAS.salidaPallet)} por salida. Mes = almacenaje de 30 días + movimientos al ritmo de hoy × 26 turnos. Sale solo de los movimientos, sin planillas.</div>`;
+  } else if (mgTab === 'rec') {
+    html = ops.trucks.slice(0, 6).map((t) => `<div class="li"><span><b>${t.remito}</b> ${t.proveedor} · ${t.dock}<br><span style="color:var(--muted)">${t.recibidos}/${t.esperado} pallets · llegó ${fmtClock(t.llegada)}</span></span>
+      <span class="${t.estado === 'OK' ? 'ok-c' : t.estado === 'DESCARGANDO' ? '' : 'wa-c'}" style="text-align:right;font-weight:700">${t.estado}${t.diferencias.length ? `<br>${t.diferencias.length} dif.` : ''}</span></div>`).join('') || '<div class="note">Esperando el primer camión…</div>';
+    html += ops.receivingIssues.length ? `<div class="note" style="margin-top:10px;font-weight:700">Diferencias contra remito</div>` +
+      ops.receivingIssues.slice(0, 4).map((d) => `<div class="li"><span><b>${d.lpn}</b> ${d.texto}</span><span class="wa-c">${fmtClock(d.t)}</span></div>`).join('') : '';
+  } else {
+    const blocked = st.clarks.filter((c) => c.blocked);
+    html = (blocked.length ? `<div class="li"><span class="ko-c"><b>${blocked.map((c) => c.code).join(', ')}</b> bloqueado(s) por checklist</span><span></span></div>` : '') +
+      (ops.problems.slice(0, 6).map((p) => `<div class="li"><span><b>${p.clark}</b> ${p.texto}</span><span class="wa-c">${fmtClock(p.t)}</span></div>`).join('') ||
+        `<div class="note">Sin problemas reportados. Abrí la tablet de un clark (PIN ${PIN_DEMO}) y probá “Reportar problema” o el checklist con una falla.</div>`) +
+      `<div class="note">Escaneos equivocados detectados: <b>${ops.wrongScans}</b> · salidas fuera de FEFO autorizadas: <b>${ops.fefoOverrides}</b></div>`;
+  }
+  $('mgBody').innerHTML = html;
+}
+
+// ---------- Resumen del turno ----------
+$('summaryBtn').onclick = () => {
+  const s = shiftSummary(ops, st, data.warehouse.name);
+  $('sumPre').textContent = s.text;
+  $('sumWa').href = 'https://wa.me/?text=' + encodeURIComponent(s.text);
+  $('sumModal').classList.add('open');
+};
+$('sumClose').onclick = () => $('sumModal').classList.remove('open');
+$('sumModal').addEventListener('click', (e) => { if (e.target.id === 'sumModal') $('sumModal').classList.remove('open'); });
+$('sumCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('sumPre').textContent); toast('Resumen copiado'); } catch { toast('No se pudo copiar desde esta vista'); }
+};
 
 // ---------- Panel ----------
 function updateUi(force) {
@@ -261,13 +403,20 @@ function updateUi(force) {
   $('clarks').innerHTML = k.clarks.map(({ c, perHour }) => `
     <div class="clk ${view.selectedClark === c ? 'sel' : ''}" data-id="${c.id}">
       <div class="dot" style="background:${c.color}">${c.id}</div>
-      <div><b>${c.code}</b> · ${c.operator}<div class="t">${taskText(c)}</div></div>
+      <div><b>${c.code}</b> · ${c.operator}${c.blocked ? ' <span class="lock">🔒</span>' : ''}<div class="t">${taskText(c)}</div></div>
       <div class="r"><b>${fmt(perHour, 0)}/h</b>${fmt(c.meters / 1000, 1)} km</div>
     </div>`).join('');
   $('expN').textContent = k.expiring.length;
   $('alerts').innerHTML = k.expiring.slice(0, 5).map(({ p, sku, loc }) => `
     <div class="alert"><span><b>${loc.code}</b> ${sku.desc}</span><span style="color:${p.exp < 10 ? '#ef4444' : '#f59e0b'};font-weight:700;white-space:nowrap">${p.exp} días</span></div>`).join('') || '<div style="color:var(--muted)">Sin alertas</div>';
   $('feed').innerHTML = st.log.slice(0, 12).map((l) => `<div class="${l.type === 'smart' ? 'smart' : ''}"><time>${fmtClock(l.t)}</time>${l.text}</div>`).join('');
+  const acc = stockAccuracy(ops);
+  $('kAcc').textContent = acc == null ? '–' : fmt(acc * 100, 1) + '%';
+  $('kAccS').textContent = `${ops.counted} ubic. contadas · ${ops.countedWithDiff} dif.`;
+  const cr = clientReport(ops, st);
+  $('kRisk').textContent = money(cr.reduce((x, r) => x + r.riesgo, 0));
+  $('kRiskS').textContent = `${cr.reduce((x, r) => x + r.riesgoPallets, 0)} pallets · valor de ejemplo`;
+  renderMg();
   $('mapInfo').textContent = `${data.locations.length} ubicaciones · 6 pasillos · 4 niveles`;
   if (tabletClark) renderTablet();
   if (view.selected && !force) showDetail(view.selected);
@@ -342,13 +491,13 @@ $('copyJson').onclick = async () => {
 $('regen').onclick = () => { seed = Math.floor(Math.random() * 1e6); boot(); $('dataModal').classList.remove('open'); toast('Nuevo depósito generado · semilla ' + seed); };
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeTablet(); $('dataModal').classList.remove('open'); }
+  if (e.key === 'Escape') { closeTablet(); $('dataModal').classList.remove('open'); $('sumModal').classList.remove('open'); }
   if (e.key === ' ' && e.target === document.body) { e.preventDefault(); $('play').click(); }
   if (e.key.toLowerCase() === 's' && e.target === document.body) $('smartBtn').click();
 });
 
 // API mínima para grabar el video de demo
-window.__wms = { get st() { return st; }, get dim() { return dim; }, setDim, focusClark: (i, d) => { const c = st.clarks[i]; if (v3) v3.focus(c.x, c.y, d); },view,setSpeed: (s) => { speed = s; }, smart: () => $('smartBtn').click(), openTablet: (i) => openTablet(st.clarks[i]), closeTablet, selectLoc: (code) => { const l = st.locations.find((x) => x.code === code); view.selected = l; showDetail(l); }, step: (s) => stepSim(st, s) };
+window.__wms = { get st() { return st; }, get dim() { return dim; }, setDim, focusClark: (i, d) => { const c = st.clarks[i]; if (v3) v3.focus(c.x, c.y, d); },view,setSpeed: (s) => { speed = s; }, smart: () => $('smartBtn').click(), openTablet: (i) => openTablet(st.clarks[i]), closeTablet, selectLoc: (code) => { const l = st.locations.find((x) => x.code === code); view.selected = l; showDetail(l); }, step: (s) => { stepSim(st, s); stepOps(ops, st); }, get ops() { return ops; } };
 
 renderLegend();
 boot();

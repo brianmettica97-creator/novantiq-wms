@@ -427,7 +427,9 @@ export function createView3D(container, view) {
       f.carriage.position.y = fh;
       f.inner.position.y = Math.max(0, fh - 1.1);
       f.reach.position.x = 0.15 + (h && h.ref.kind === 'loc' ? reachAmount(h.p) * 0.75 : 0);
-      f.beacon.material.emissiveIntensity = c.task ? (Math.sin(now / 120 + k) > 0 ? 2.2 : 0.2) : 0.3;
+      f.beacon.material.color.set(c.blocked ? '#ef4444' : '#f59e0b');
+      f.beacon.material.emissive.set(c.blocked ? '#ef4444' : '#f59e0b');
+      f.beacon.material.emissiveIntensity = c.blocked ? 3 : c.task ? (Math.sin(now / 120 + k) > 0 ? 2.2 : 0.2) : 0.3;
       o.label.position.set(c.x, 3.1, c.y);
       o.label.scale.setScalar(view.selectedClark === c ? 0.95 : 0.65);
 

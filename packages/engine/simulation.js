@@ -58,7 +58,11 @@ export function setSmart(st, on) {
   }
 }
 
-function addLog(st, text, type = 'info') {
+// Gancho opcional para módulos que observan la operación (historia de pallets, facturación, recepción).
+// No altera la simulación: si nadie escucha, no hace nada.
+function emit(st, ev) { if (st.onEvent) st.onEvent({ t: st.t, ...ev }); }
+
+export function addLog(st, text, type = 'info') {
   st.log.unshift({ t: st.t, text, type });
   if (st.log.length > 80) st.log.length = 80;
 }
@@ -136,7 +140,9 @@ function generateTask(st) {
   st.palletMap.set(id, p);
   st.targetedPallets.add(id);
   const dock = rng.pick(inDocks);
-  return newTask(st, { type: 'PUTAWAY', palletId: id, from: { kind: 'dock', id: dock.id }, to: { kind: 'loc', id: loc.id } });
+  const task = newTask(st, { type: 'PUTAWAY', palletId: id, from: { kind: 'dock', id: dock.id }, to: { kind: 'loc', id: loc.id } });
+  emit(st, { type: 'RECEPCION', task, pallet: p, dock });
+  return task;
 }
 
 function assign(st, c) {
@@ -192,6 +198,7 @@ function finishHandle(st, c) {
     st.moves++;
     addLog(st, `${c.code} reubicó ${p.lpn} (${sku.abc}) ${fromTxt} → ${toTxt}` + (t.savings ? ` · ahorra ~${t.savings} m/mes` : ''), 'smart');
   }
+  emit(st, { type: t.type, task: t, pallet: p, clark: c, fromTxt, toTxt });
   st.tasks = st.tasks.filter((x) => x !== t);
   c.task = null; c.phase = 'idle';
 }
@@ -217,6 +224,7 @@ function moveClark(c, dt) {
 }
 
 function stepClark(st, c, dt) {
+  if (c.blocked) return; // equipo bloqueado (checklist de seguridad con falla)
   if (c.phase === 'idle') { assign(st, c); if (c.phase === 'idle') return; }
   c.busy += dt;
   if (c.phase === 'toFrom' || c.phase === 'toTo') {

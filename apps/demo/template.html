@@ -57,6 +57,7 @@ canvas.map3d{position:absolute;inset:0;display:block;cursor:grab;touch-action:no
 .tip{position:absolute;pointer-events:none;background:rgba(13,20,36,.96);border:1px solid #2a3a58;border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.45;display:none;max-width:260px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
 .tip b{font-family:'JetBrains Mono',monospace}
 .detail{position:absolute;left:14px;bottom:14px;width:300px;background:rgba(13,20,36,.97);border:1px solid #2a3a58;border-radius:14px;padding:14px;display:none;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.detail{max-height:calc(100% - 28px);overflow:auto}
 .detail h3{font-family:'JetBrains Mono',monospace;font-size:20px;margin-bottom:2px}
 .detail .row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #1e2a40;font-size:12.5px}
 .detail .row span:first-child{color:var(--muted)}
@@ -74,6 +75,36 @@ aside::-webkit-scrollbar{width:6px}aside::-webkit-scrollbar-thumb{background:#1e
 .bar{height:6px;border-radius:9px;background:#1a2540;margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#38bdf8);border-radius:9px;transition:width .4s}
 .sec{padding:14px}
+.tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:12px}
+.tabs button{flex:1;background:none;border:0;padding:6px 4px;border-radius:7px;font-weight:700;font-size:12px;color:var(--muted)}
+.tabs button.on{background:#1c2a45;color:var(--text)}
+.tabs button i{font-style:normal;background:#7c2d12;color:#fed7aa;border-radius:99px;padding:0 6px;margin-left:4px;font-size:10.5px}
+.mg .big2{display:flex;align-items:baseline;gap:8px}.mg .big2 b{font-size:30px;font-weight:800}
+.mg .note{color:var(--muted);font-size:11.5px;margin-top:6px;line-height:1.45}
+.mg table{width:100%;border-collapse:collapse;font-size:12px}
+.mg th{color:var(--muted);font-weight:600;text-align:right;padding:4px 2px;font-size:11px}.mg th:first-child,.mg td:first-child{text-align:left}
+.mg td{padding:6px 2px;border-top:1px dashed #1e2a40;text-align:right;font-variant-numeric:tabular-nums}
+.mg .li{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:6px 0;border-top:1px dashed #1e2a40}
+.mg .li b{font-family:'JetBrains Mono',monospace;font-size:11.5px}
+.ok-c{color:#86efac}.ko-c{color:#fca5a5}.wa-c{color:#fcd34d}
+.feed .warn{color:#fcd34d}
+.hist{margin-top:10px;font-size:11.5px}.hist div{padding:4px 0;border-bottom:1px dashed #1e2a40;color:#c5d1e3}.hist time{color:var(--muted);font-family:'JetBrains Mono',monospace;margin-right:6px}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.keypad button{border:1px solid #1e293b;background:#0b1220;border-radius:14px;padding:16px;font-size:24px;font-weight:800}
+.pinbox{display:flex;gap:12px;justify-content:center;margin:18px 0 4px}.pinbox i{width:18px;height:18px;border-radius:50%;border:2px solid #475569}.pinbox i.f{background:#22c55e;border-color:#22c55e}
+.chk{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:#0b1220;border:1px solid #1e293b;border-radius:12px;margin-top:8px;font-weight:700}
+.chk span{display:flex;gap:6px}.chk button{border:1px solid #334155;background:#111827;border-radius:9px;padding:8px 12px;font-weight:800}
+.chk button.sel-ok{background:#166534;border-color:#22c55e}.chk button.sel-ko{background:#7f1d1d;border-color:#ef4444}
+.tablet .msg{border-radius:14px;padding:12px 14px;margin:12px 0;font-weight:700}
+.tablet .msg.g{background:rgba(34,197,94,.15);border:1px solid #22c55e;color:#bbf7d0}.tablet .msg.r{background:rgba(239,68,68,.15);border:1px solid #ef4444;color:#fecaca}
+.tablet .msg small{display:block;font-weight:500;margin-top:4px;color:inherit;opacity:.9;font-size:13px}
+.tablet .acts3{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tablet .acts3 button{border:0;border-radius:14px;padding:16px;font-size:16px;font-weight:800}
+.tablet .demo{color:var(--muted);font-size:11px;margin:10px 0 6px;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.tablet .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.tablet .pgrid button{border:1px solid #7f1d1d;background:#1c0a0a;color:#fecaca;border-radius:12px;padding:12px;font-weight:700}
+.clk .lock{color:#f87171;font-weight:800}
+.touch{display:none}@media (pointer:coarse){.touch{display:inline}.mouse{display:none}}
 .sec h4{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
 .slot .big{display:flex;align-items:baseline;gap:10px}
 .slot .big b{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
@@ -136,6 +167,7 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
         <button data-s="1">1x</button><button data-s="10" class="on">10x</button><button data-s="30">30x</button><button data-s="90">90x</button>
       </div>
       <div class="smart" id="smart"><span>Slotting inteligente</span><button class="switch" id="smartBtn" aria-label="Activar slotting inteligente"></button></div>
+      <button class="btn" id="summaryBtn">📋 Resumen del turno</button>
       <button class="btn" id="dataBtn">Datos mock</button>
       <button class="btn" id="reset">↺ Reiniciar</button>
     </div>
@@ -153,7 +185,7 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
       <div class="legend" id="legend"></div>
       <div class="canvaswrap is3d" id="wrap">
         <canvas id="map"></canvas>
-        <div class="hint3d only3d">Arrastrá para girar · clic derecho para desplazar · rueda para acercar</div>
+        <div class="hint3d only3d"><span class="mouse">Arrastrá para girar · clic derecho para desplazar · rueda para acercar</span><span class="touch">Un dedo gira · dos dedos mueven y acercan</span></div>
         <div class="tip" id="tip"></div>
         <div class="zoom"><button id="zin" title="Acercar">+</button><button id="zout" title="Alejar">−</button><button id="zfit" title="Encuadrar">⤢</button><button id="zaisle" class="only3d" title="Vista desde un pasillo">⇶</button></div>
         <div class="detail" id="detail"></div>
@@ -165,6 +197,12 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
         <div class="card kpi"><small>Pallets en stock</small><div class="v" id="kStock">–</div><div class="s" id="kStockS"></div></div>
         <div class="card kpi"><small>Movimientos / hora</small><div class="v" id="kPph">–</div><div class="s" id="kPphS"></div></div>
         <div class="card kpi"><small>Recorrido por picking</small><div class="v" id="kPick">–</div><div class="s" id="kPickS"></div></div>
+        <div class="card kpi"><small>Exactitud de stock</small><div class="v" id="kAcc">–</div><div class="s" id="kAccS"></div></div>
+        <div class="card kpi"><small>Por vencer &lt; 30 d</small><div class="v" id="kRisk" style="font-size:22px">–</div><div class="s" id="kRiskS"></div></div>
+      </div>
+      <div class="card sec mg"><h4><span>Gestión del depósito</span><span>datos de ejemplo</span></h4>
+        <div class="tabs" id="mgTabs"><button data-t="inv" class="on">Inventario</button><button data-t="cli">Clientes</button><button data-t="rec">Recepción</button><button data-t="pro">Problemas</button></div>
+        <div id="mgBody"></div>
       </div>
       <div class="card sec slot">
         <h4><span>Índice de recorrido · slotting</span><span id="sugg"></span></h4>
@@ -187,6 +225,13 @@ canvas#spark{width:100%;height:64px;display:block;margin:8px 0}
   <p style="color:var(--muted);margin-top:6px;font-size:13px" id="dataSummary"></p>
   <pre id="dataPre"></pre>
   <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copyJson">Copiar JSON completo</button><button class="btn" id="regen">Generar otro depósito</button></div>
+</div></div>
+<div class="modal" id="sumModal"><div class="dataBox">
+  <button class="close" id="sumClose">×</button>
+  <h3 style="font-size:18px">Resumen del turno</h3>
+  <p style="color:var(--muted);margin-top:6px;font-size:13px">Lo que el dueño recibe al cierre de cada turno, listo para mandar por WhatsApp o mail.</p>
+  <pre id="sumPre" style="white-space:pre-wrap;font-size:13px;color:#e2e8f0"></pre>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="sumCopy">Copiar</button><a class="btn" id="sumWa" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">Enviar por WhatsApp</a></div>
 </div></div>
 <div class="toast" id="toast"></div>
 

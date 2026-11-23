@@ -1,6 +1,7 @@
 # NOVANTIQ WMS
 
 **▶ [Ver la demo en vivo](https://brianmettica97-creator.github.io/novantiq-wms/dist/wms-demo.html)**: depósito simulado en 3D, sin instalar nada (funciona en compu y celular).
+**📄 [Guía para revisar la demo y camino al piloto](ROADMAP.md)**
 
 Sistema de gestión de almacenes (WMS) para depósitos con autoelevadores: mapa en vivo,
 app para la tablet del clark, putaway y picking FEFO, slotting inteligente ABC y dashboard de KPIs.
@@ -16,6 +17,7 @@ packages/engine/      Motor compartido en JS puro (sin dependencias)
   layout.js           Geometría del depósito y rutas por pasillos
   mockdata.js         Generador de datos falsos (semilla → mismo depósito siempre)
   slotting.js         Zonas A/B/C, putaway inteligente, sugerencias y ahorro
+  ops.js              Gestión: historia de pallets, inventario cíclico, recepción vs. remito, facturación, tablet, resumen
   simulation.js       Simulación de clarks, tareas y KPIs
   renderer.js         Dibujo del mapa en <canvas>
   adapter.js          Convierte la respuesta de la API en estado para el mapa
@@ -62,7 +64,7 @@ Para más pallets: `node scripts/seed.mjs --pallets 800 --seed 7`.
 
 ```bash
 npm run demo:build   # arma dist/wms-demo.html (3D por defecto; botón 2D para el mapa plano)
-npm test             # recepción/putaway, picking FEFO, slotting, invariantes de stock y animación 3D
+npm test             # recepción/putaway, picking FEFO, slotting, inventario cíclico, facturación, tablet y animación 3D
 ```
 
 La vista 3D usa la misma simulación que el mapa 2D. Arrastrá para girar, clic derecho para desplazar,

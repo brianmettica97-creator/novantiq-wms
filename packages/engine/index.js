@@ -5,3 +5,4 @@ export * from './slotting.js';
 export * from './simulation.js';
 export * from './renderer.js';
 export * from './adapter.js';
+export * from './ops.js';
